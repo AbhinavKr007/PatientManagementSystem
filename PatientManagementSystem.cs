@@ -1,3 +1,4 @@
+// Full and corrected PatientManagementSystem.cs
 using System;
 using System.Data;
 using System.Data.SQLite;
@@ -85,7 +86,7 @@ namespace PatientManagementSystem
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Database initialization error: {ex.Message}", "Error", 
+                MessageBox.Show($"Database initialization error: {ex.Message}", "Error",
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -211,7 +212,7 @@ namespace PatientManagementSystem
             Label lblAddress = new Label() { Text = "Address:", Location = new Point(20, 150), Size = new Size(100, 25) };
             TextBox txtAddress = new TextBox() { Name = "txtAddress", Location = new Point(130, 150), Size = new Size(530, 50), Multiline = true };
 
-            personalInfoGroup.Controls.AddRange(new Control[] { 
+            personalInfoGroup.Controls.AddRange(new Control[] {
                 lblFirstName, txtFirstName, lblLastName, txtLastName,
                 lblDOB, dtpDOB, lblGender, cmbGender,
                 lblPhone, txtPhone, lblEmail, txtEmail,
@@ -602,20 +603,20 @@ namespace PatientManagementSystem
             card.Size = new Size(190, 80);
             card.BackColor = color;
 
-            Label lblTitle = new Label() { 
-                Text = title, 
-                ForeColor = Color.White, 
-                Font = new Font("Segoe UI", 9F), 
-                Location = new Point(10, 10), 
-                Size = new Size(170, 20) 
+            Label lblTitle = new Label() {
+                Text = title,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F),
+                Location = new Point(10, 10),
+                Size = new Size(170, 20)
             };
 
-            Label lblValue = new Label() { 
-                Text = value, 
-                ForeColor = Color.White, 
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold), 
-                Location = new Point(10, 35), 
-                Size = new Size(170, 30) 
+            Label lblValue = new Label() {
+                Text = value,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
+                Location = new Point(10, 35),
+                Size = new Size(170, 30)
             };
 
             card.Controls.AddRange(new Control[] { lblTitle, lblValue });
@@ -650,8 +651,8 @@ namespace PatientManagementSystem
                 }
 
                 connection.Open();
-                string query = @"INSERT INTO Patients 
-                    (FirstName, LastName, DateOfBirth, Gender, PhoneNumber, Email, Address, EmergencyContact, BloodGroup, MedicalHistory) 
+                string query = @"INSERT INTO Patients
+                    (FirstName, LastName, DateOfBirth, Gender, PhoneNumber, Email, Address, EmergencyContact, BloodGroup, MedicalHistory)
                     VALUES (@fname, @lname, @dob, @gender, @phone, @email, @address, @emergency, @bloodgroup, @medical)";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
@@ -798,8 +799,8 @@ namespace PatientManagementSystem
                 }
 
                 connection.Open();
-                string query = @"INSERT INTO Appointments 
-                    (PatientID, DoctorName, AppointmentDate, AppointmentTime, Department, Notes) 
+                string query = @"INSERT INTO Appointments
+                    (PatientID, DoctorName, AppointmentDate, AppointmentTime, Department, Notes)
                     VALUES (@patientid, @doctor, @date, @time, @dept, @notes)";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
@@ -842,7 +843,7 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                string query = @"SELECT a.AppointmentID, p.FirstName || ' ' || p.LastName as PatientName, 
+                string query = @"SELECT a.AppointmentID, p.FirstName || ' ' || p.LastName as PatientName,
                     a.DoctorName, a.AppointmentDate, a.AppointmentTime, a.Department, a.Status, a.Notes
                     FROM Appointments a
                     JOIN Patients p ON a.PatientID = p.PatientID
@@ -914,8 +915,8 @@ namespace PatientManagementSystem
                 }
 
                 connection.Open();
-                string query = @"INSERT INTO Prescriptions 
-                    (PatientID, DoctorName, PrescriptionDate, Diagnosis, Medicines, Instructions, FollowUpDate) 
+                string query = @"INSERT INTO Prescriptions
+                    (PatientID, DoctorName, PrescriptionDate, Diagnosis, Medicines, Instructions, FollowUpDate)
                     VALUES (@patientid, @doctor, @date, @diagnosis, @medicines, @instructions, @followup)";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
@@ -961,7 +962,7 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                string query = @"SELECT pr.PrescriptionID, p.FirstName || ' ' || p.LastName as PatientName, 
+                string query = @"SELECT pr.PrescriptionID, p.FirstName || ' ' || p.LastName as PatientName,
                     pr.DoctorName, pr.PrescriptionDate, pr.Diagnosis, pr.Medicines, pr.FollowUpDate
                     FROM Prescriptions pr
                     JOIN Patients p ON pr.PatientID = p.PatientID
@@ -1001,8 +1002,8 @@ namespace PatientManagementSystem
                 }
 
                 connection.Open();
-                string query = @"INSERT INTO Billing 
-                    (PatientID, ServiceDescription, Amount, PaymentStatus, PaymentMethod, BillDate, DueDate) 
+                string query = @"INSERT INTO Billing
+                    (PatientID, ServiceDescription, Amount, PaymentStatus, PaymentMethod, BillDate, DueDate)
                     VALUES (@patientid, @service, @amount, @status, @method, @billdate, @duedate)";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
@@ -1048,7 +1049,7 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                string query = @"SELECT b.BillID, p.FirstName || ' ' || p.LastName as PatientName, 
+                string query = @"SELECT b.BillID, p.FirstName || ' ' || p.LastName as PatientName,
                     b.ServiceDescription, b.Amount, b.PaymentStatus, b.PaymentMethod, b.BillDate, b.DueDate
                     FROM Billing b
                     JOIN Patients p ON b.PatientID = p.PatientID
@@ -1181,7 +1182,7 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                string query = @"SELECT 
+                string query = @"SELECT
                     DATE(b.BillDate) as Date,
                     COUNT(*) as TotalBills,
                     SUM(CASE WHEN b.PaymentStatus = 'Paid' THEN b.Amount ELSE 0 END) as PaidAmount,
@@ -1237,7 +1238,7 @@ namespace PatientManagementSystem
                         foreach (DataGridViewRow row in dgv.Rows)
                         {
                             if (row.IsNewRow) continue;
-                            string rowData = string.Join(",", row.Cells.Cast<DataGridViewCell>().Select(cell => $""{cell.Value}""));
+                            string rowData = string.Join(",", row.Cells.Cast<DataGridViewCell>().Select(cell => $"\"{cell.Value}\""));
                             sw.WriteLine(rowData);
                         }
                     }
@@ -1278,7 +1279,7 @@ namespace PatientManagementSystem
             MessageBox.Show("Settings feature will be implemented in future versions.", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-              private void ShowAbout(object sender, EventArgs e)
+        private void ShowAbout(object sender, EventArgs e)
         {
             string aboutText = @"Patient Management System v1.0
 
