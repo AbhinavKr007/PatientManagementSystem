@@ -78,7 +78,7 @@ jobs:
           - 2 GB RAM minimum
           - 500 MB free disk space
 
-          ### Features
+          ### Features_
           - Standalone executable (no dependencies)
           - SQLite database (created automatically)
           - Professional medical interface
