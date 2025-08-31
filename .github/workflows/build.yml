@@ -1,0 +1,88 @@
+name: Build Patient Management System EXE
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v3
+      with:
+        dotnet-version: 6.0.x
+
+    - name: Restore dependencies
+      run: dotnet restore PatientManagementSystem.csproj
+
+    - name: Build application
+      run: dotnet build PatientManagementSystem.csproj --configuration Release --no-restore
+
+    - name: Publish standalone executable
+      run: |
+        dotnet publish PatientManagementSystem.csproj --configuration Release --runtime win-x64 --self-contained true --output ./publish --verbosity normal
+
+    - name: Create installer directory
+      run: |
+        mkdir installer
+        copy publish\PatientManagementSystem.exe installer\
+        copy README_PatientManagement.md installer\ 2>nul || echo "README not found"
+
+    - name: Upload executable artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: PatientManagementSystem-Windows-x64
+        path: |
+          publish/PatientManagementSystem.exe
+          installer/
+        retention-days: 30
+
+    - name: Upload standalone executable
+      uses: actions/upload-artifact@v4
+      with:
+        name: PatientManagementSystem-Standalone-EXE
+        path: publish/PatientManagementSystem.exe
+        retention-days: 90
+
+    - name: Create release (if tagged)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          publish/PatientManagementSystem.exe
+        body: |
+          ## Patient Management System v1.0
+
+          Complete healthcare management solution with:
+          - Patient Registration & Management
+          - Appointment Scheduling
+          - Prescription Management  
+          - Billing & Payment Tracking
+          - Sales Reports & Analytics
+
+          ### Installation
+          1. Download PatientManagementSystem.exe
+          2. Copy to any Windows computer
+          3. Double-click to run (no installation required)
+
+          ### System Requirements
+          - Windows 7 or later (64-bit)
+          - 2 GB RAM minimum
+          - 500 MB free disk space
+
+          ### Features
+          - Standalone executable (no dependencies)
+          - SQLite database (created automatically)
+          - Professional medical interface
+          - HIPAA-compliant design
+          - Complete offline operation
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
