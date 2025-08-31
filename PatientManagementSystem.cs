@@ -1278,13 +1278,17 @@ namespace PatientManagementSystem
             MessageBox.Show("Settings feature will be implemented in future versions.", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
-        private void ShowAbout(object sender, EventArgs e)
-        {
-            MessageBox.Show($"Patient Management System v1.0\n\n" +
-                $"A comprehensive healthcare management solution\n" +
-                $"Features: Patient Registration, Appointments, Prescriptions, Billing & Reports\n\n" +
-                $"© 2025 - Healthcare Solutions", "About", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
+       private void ShowAbout(object sender, EventArgs e)
+{
+    string aboutText = "Patient Management System v1.0\n\n" +
+                       "A comprehensive healthcare management solution\n" +
+                       "Features: Patient Registration, Appointments, Prescriptions, Billing & Reports\n\n" +
+                       "© 2025 - Healthcare Solutions";
+
+    string caption = "About";
+
+    MessageBox.Show(aboutText, caption, MessageBoxButtons.OK, MessageBoxIcon.Information);
+}
 
         protected override void Dispose(bool disposing)
         {
