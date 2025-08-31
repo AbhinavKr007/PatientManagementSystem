@@ -176,7 +176,7 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
 
             // Create form controls
-            GroupBox personalInfoGroup = new GroupBox("Personal Information");
+            GroupBox personalInfoGroup = new GroupBox(); personalInfoGroup.Text = "Personal Information";
             personalInfoGroup.Size = new Size(800, 250);
             personalInfoGroup.Location = new Point(10, 10);
             personalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
@@ -220,7 +220,7 @@ namespace PatientManagementSystem
             });
 
             // Medical Information Group
-            GroupBox medicalInfoGroup = new GroupBox("Medical Information");
+            GroupBox medicalInfoGroup = new GroupBox(); medicalInfoGroup.Text = "Medical Information";
             medicalInfoGroup.Size = new Size(800, 150);
             medicalInfoGroup.Location = new Point(10, 270);
             medicalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
@@ -279,7 +279,7 @@ namespace PatientManagementSystem
             mainPanel.Dock = DockStyle.Fill;
             mainPanel.Padding = new Padding(20);
 
-            GroupBox appointmentGroup = new GroupBox("Schedule Appointment");
+            GroupBox appointmentGroup = new GroupBox(); appointmentGroup.Text = "Schedule Appointment";
             appointmentGroup.Size = new Size(800, 200);
             appointmentGroup.Location = new Point(10, 10);
             appointmentGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
@@ -363,7 +363,7 @@ namespace PatientManagementSystem
             mainPanel.Dock = DockStyle.Fill;
             mainPanel.Padding = new Padding(20);
 
-            GroupBox prescriptionGroup = new GroupBox("Create Prescription");
+            GroupBox prescriptionGroup = new GroupBox(); prescriptionGroup.Text = "Create Prescription";
             prescriptionGroup.Size = new Size(800, 300);
             prescriptionGroup.Location = new Point(10, 10);
             prescriptionGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
@@ -436,7 +436,7 @@ namespace PatientManagementSystem
             mainPanel.Dock = DockStyle.Fill;
             mainPanel.Padding = new Padding(20);
 
-            GroupBox billingGroup = new GroupBox("Create Bill");
+            GroupBox billingGroup = new GroupBox(); billingGroup.Text = "Create Bill";
             billingGroup.Size = new Size(800, 200);
             billingGroup.Location = new Point(10, 10);
             billingGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
@@ -549,7 +549,7 @@ namespace PatientManagementSystem
             summaryPanel.Controls.AddRange(new Control[] { patientsCard, appointmentsCard, billsCard, revenueCard });
 
             // Date Range Selection
-            GroupBox dateRangeGroup = new GroupBox("Sales Summary");
+            GroupBox dateRangeGroup = new GroupBox(); dateRangeGroup.Text = "Sales Summary";
             dateRangeGroup.Size = new Size(800, 80);
             dateRangeGroup.Location = new Point(10, 120);
             dateRangeGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
