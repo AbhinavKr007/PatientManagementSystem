@@ -1,5 +1,6 @@
 // Full and corrected PatientManagementSystem.cs
 using System;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.SQLite;
 using System.Drawing;
@@ -9,17 +10,255 @@ using System.Windows.Forms;
 using System.Globalization;
 using System.Drawing.Printing;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Security.Cryptography;
 
 namespace PatientManagementSystem
 {
+    internal static class DbInit
+    {
+        public static readonly string[] Scripts = {
+            @"CREATE TABLE IF NOT EXISTS Patients (
+                PatientID INTEGER PRIMARY KEY AUTOINCREMENT,
+                FirstName TEXT NOT NULL,
+                LastName TEXT NOT NULL,
+                DateOfBirth DATE NOT NULL,
+                Gender TEXT NOT NULL,
+                PhoneNumber TEXT NOT NULL,
+                Email TEXT,
+                Address TEXT NOT NULL,
+                EmergencyContact TEXT,
+                BloodGroup TEXT,
+                MedicalHistory TEXT,
+                RegistrationDate DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+
+            @"CREATE TABLE IF NOT EXISTS Appointments (
+                AppointmentID INTEGER PRIMARY KEY AUTOINCREMENT,
+                PatientID INTEGER NOT NULL,
+                DoctorName TEXT NOT NULL,
+                AppointmentDate DATE NOT NULL,
+                AppointmentTime TEXT NOT NULL,
+                Department TEXT NOT NULL,
+                Status TEXT DEFAULT 'Scheduled',
+                Notes TEXT,
+                CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (PatientID) REFERENCES Patients (PatientID)
+            )",
+
+            @"CREATE TABLE IF NOT EXISTS Prescriptions (
+                PrescriptionID INTEGER PRIMARY KEY AUTOINCREMENT,
+                PatientID INTEGER NOT NULL,
+                DoctorName TEXT NOT NULL,
+                PrescriptionDate DATE NOT NULL,
+                Diagnosis TEXT NOT NULL,
+                Medicines TEXT NOT NULL,
+                Instructions TEXT,
+                FollowUpDate DATE,
+                CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (PatientID) REFERENCES Patients (PatientID)
+            )",
+
+            @"CREATE TABLE IF NOT EXISTS Billing (
+                BillID INTEGER PRIMARY KEY AUTOINCREMENT,
+                PatientID INTEGER NOT NULL,
+                AppointmentID INTEGER,
+                ServiceDescription TEXT NOT NULL,
+                Amount DECIMAL(10,2) NOT NULL,
+                PaymentStatus TEXT DEFAULT 'Pending',
+                PaymentMethod TEXT,
+                BillDate DATE NOT NULL,
+                DueDate DATE,
+                CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (PatientID) REFERENCES Patients (PatientID),
+                FOREIGN KEY (AppointmentID) REFERENCES Appointments (AppointmentID)
+            )",
+
+            @"CREATE TABLE IF NOT EXISTS Users (
+                UserID INTEGER PRIMARY KEY AUTOINCREMENT,
+                Username TEXT NOT NULL UNIQUE,
+                PasswordHash TEXT NOT NULL,
+                Salt TEXT NOT NULL,
+                CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+
+            @"CREATE TABLE IF NOT EXISTS AuditLog (
+                AuditLogID INTEGER PRIMARY KEY AUTOINCREMENT,
+                Username TEXT NOT NULL,
+                Action TEXT NOT NULL,
+                Details TEXT,
+                Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )"
+        };
+
+        public static void EnsureSchema(string connectionString)
+        {
+            using (SQLiteConnection conn = new SQLiteConnection(connectionString))
+            {
+                conn.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand(conn))
+                {
+                    foreach (string script in Scripts)
+                    {
+                        cmd.CommandText = script;
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+                EnsureDefaultAdmin(conn);
+            }
+        }
+
+        private static void EnsureDefaultAdmin(SQLiteConnection conn)
+        {
+            using (SQLiteCommand check = new SQLiteCommand("SELECT COUNT(*) FROM Users", conn))
+            {
+                long userCount = Convert.ToInt64(check.ExecuteScalar());
+                if (userCount == 0)
+                {
+                    string salt = Guid.NewGuid().ToString("N");
+                    string hash = AuthHelper.HashPassword("admin123", salt);
+
+                    using (SQLiteCommand insert = new SQLiteCommand(
+                        "INSERT INTO Users (Username, PasswordHash, Salt) VALUES (@u, @h, @s)", conn))
+                    {
+                        insert.Parameters.AddWithValue("@u", "admin");
+                        insert.Parameters.AddWithValue("@h", hash);
+                        insert.Parameters.AddWithValue("@s", salt);
+                        insert.ExecuteNonQuery();
+                    }
+                }
+            }
+        }
+    }
+
+    internal static class AuthHelper
+    {
+        public static string HashPassword(string password, string salt)
+        {
+            using (SHA256 sha = SHA256.Create())
+            {
+                byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(salt + password));
+                return Convert.ToBase64String(bytes);
+            }
+        }
+
+        public static bool ValidateLogin(string connectionString, string username, string password, out string errorMessage)
+        {
+            errorMessage = null;
+            try
+            {
+                using (SQLiteConnection conn = new SQLiteConnection(connectionString))
+                {
+                    conn.Open();
+                    using (SQLiteCommand cmd = new SQLiteCommand(
+                        "SELECT PasswordHash, Salt FROM Users WHERE Username = @u", conn))
+                    {
+                        cmd.Parameters.AddWithValue("@u", username);
+                        using (SQLiteDataReader reader = cmd.ExecuteReader())
+                        {
+                            if (!reader.Read())
+                            {
+                                errorMessage = "Invalid username or password.";
+                                return false;
+                            }
+
+                            string storedHash = reader["PasswordHash"].ToString();
+                            string salt = reader["Salt"].ToString();
+                            string computedHash = HashPassword(password, salt);
+
+                            if (computedHash != storedHash)
+                            {
+                                errorMessage = "Invalid username or password.";
+                                return false;
+                            }
+
+                            return true;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                errorMessage = ex.Message;
+                return false;
+            }
+        }
+    }
+
+    public class LoginForm : Form
+    {
+        private readonly string connectionString;
+        private TextBox txtUsername;
+        private TextBox txtPassword;
+
+        public string AuthenticatedUsername { get; private set; }
+
+        public LoginForm(string connectionString)
+        {
+            this.connectionString = connectionString;
+
+            this.Text = "Patient Management System - Login";
+            this.Size = new Size(360, 230);
+            this.StartPosition = FormStartPosition.CenterScreen;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+
+            Label lblUsername = new Label() { Text = "Username:", Location = new Point(20, 30), Size = new Size(90, 25) };
+            txtUsername = new TextBox() { Location = new Point(120, 30), Size = new Size(190, 25), Text = "admin" };
+
+            Label lblPassword = new Label() { Text = "Password:", Location = new Point(20, 70), Size = new Size(90, 25) };
+            txtPassword = new TextBox() { Location = new Point(120, 70), Size = new Size(190, 25), UseSystemPasswordChar = true };
+
+            Button btnLogin = new Button() { Text = "Login", Location = new Point(120, 110), Size = new Size(100, 32) };
+            btnLogin.BackColor = Color.FromArgb(0, 123, 255);
+            btnLogin.ForeColor = Color.White;
+            btnLogin.FlatStyle = FlatStyle.Flat;
+            btnLogin.Click += (s, e) => AttemptLogin();
+
+            Label lblHint = new Label()
+            {
+                Text = "Default login: admin / admin123",
+                ForeColor = Color.Gray,
+                Location = new Point(20, 155),
+                Size = new Size(300, 20)
+            };
+
+            this.AcceptButton = btnLogin;
+            this.Controls.AddRange(new Control[] { lblUsername, txtUsername, lblPassword, txtPassword, btnLogin, lblHint });
+        }
+
+        private void AttemptLogin()
+        {
+            if (string.IsNullOrWhiteSpace(txtUsername.Text) || string.IsNullOrWhiteSpace(txtPassword.Text))
+            {
+                MessageBox.Show("Please enter both username and password.", "Validation", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            if (AuthHelper.ValidateLogin(connectionString, txtUsername.Text.Trim(), txtPassword.Text, out string error))
+            {
+                AuthenticatedUsername = txtUsername.Text.Trim();
+                this.DialogResult = DialogResult.OK;
+                this.Close();
+            }
+            else
+            {
+                MessageBox.Show(error ?? "Login failed.", "Login Failed", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+    }
+
     public partial class MainForm : Form
     {
         private SQLiteConnection connection;
         private string connectionString;
         private TabControl mainTabControl;
+        private readonly string currentUsername;
 
-        public MainForm()
+        public MainForm(string username)
         {
+            currentUsername = username;
             InitializeComponent();
             InitializeDatabase();
         }
@@ -65,6 +304,7 @@ namespace PatientManagementSystem
             // Tools Menu
             ToolStripMenuItem toolsMenu = new ToolStripMenuItem("Tools");
             toolsMenu.DropDownItems.Add("Backup Database", null, BackupDatabase);
+            toolsMenu.DropDownItems.Add("View Audit Log", null, ShowAuditLog);
             toolsMenu.DropDownItems.Add("Settings", null, ShowSettings);
 
             // Help Menu
@@ -97,67 +337,9 @@ namespace PatientManagementSystem
         {
             connection.Open();
 
-            string[] createTables = {
-                @"CREATE TABLE IF NOT EXISTS Patients (
-                    PatientID INTEGER PRIMARY KEY AUTOINCREMENT,
-                    FirstName TEXT NOT NULL,
-                    LastName TEXT NOT NULL,
-                    DateOfBirth DATE NOT NULL,
-                    Gender TEXT NOT NULL,
-                    PhoneNumber TEXT NOT NULL,
-                    Email TEXT,
-                    Address TEXT NOT NULL,
-                    EmergencyContact TEXT,
-                    BloodGroup TEXT,
-                    MedicalHistory TEXT,
-                    RegistrationDate DATETIME DEFAULT CURRENT_TIMESTAMP
-                )",
-
-                @"CREATE TABLE IF NOT EXISTS Appointments (
-                    AppointmentID INTEGER PRIMARY KEY AUTOINCREMENT,
-                    PatientID INTEGER NOT NULL,
-                    DoctorName TEXT NOT NULL,
-                    AppointmentDate DATE NOT NULL,
-                    AppointmentTime TEXT NOT NULL,
-                    Department TEXT NOT NULL,
-                    Status TEXT DEFAULT 'Scheduled',
-                    Notes TEXT,
-                    CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (PatientID) REFERENCES Patients (PatientID)
-                )",
-
-                @"CREATE TABLE IF NOT EXISTS Prescriptions (
-                    PrescriptionID INTEGER PRIMARY KEY AUTOINCREMENT,
-                    PatientID INTEGER NOT NULL,
-                    DoctorName TEXT NOT NULL,
-                    PrescriptionDate DATE NOT NULL,
-                    Diagnosis TEXT NOT NULL,
-                    Medicines TEXT NOT NULL,
-                    Instructions TEXT,
-                    FollowUpDate DATE,
-                    CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (PatientID) REFERENCES Patients (PatientID)
-                )",
-
-                @"CREATE TABLE IF NOT EXISTS Billing (
-                    BillID INTEGER PRIMARY KEY AUTOINCREMENT,
-                    PatientID INTEGER NOT NULL,
-                    AppointmentID INTEGER,
-                    ServiceDescription TEXT NOT NULL,
-                    Amount DECIMAL(10,2) NOT NULL,
-                    PaymentStatus TEXT DEFAULT 'Pending',
-                    PaymentMethod TEXT,
-                    BillDate DATE NOT NULL,
-                    DueDate DATE,
-                    CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (PatientID) REFERENCES Patients (PatientID),
-                    FOREIGN KEY (AppointmentID) REFERENCES Appointments (AppointmentID)
-                )"
-            };
-
             using (SQLiteCommand cmd = new SQLiteCommand(connection))
             {
-                foreach (string createTable in createTables)
+                foreach (string createTable in DbInit.Scripts)
                 {
                     cmd.CommandText = createTable;
                     cmd.ExecuteNonQuery();
@@ -176,6 +358,7 @@ namespace PatientManagementSystem
             Panel mainPanel = new Panel();
             mainPanel.Dock = DockStyle.Fill;
             mainPanel.Padding = new Padding(20);
+            mainPanel.AutoScroll = true;
 
             // Create form controls
             GroupBox personalInfoGroup = new GroupBox(); personalInfoGroup.Text = "Personal Information";
@@ -259,14 +442,29 @@ namespace PatientManagementSystem
             btnClearPatient.FlatStyle = FlatStyle.Flat;
             btnClearPatient.Click += (s, e) => ClearPatientForm(personalInfoGroup, medicalInfoGroup);
 
+            Button btnDeletePatient = new Button() { Text = "Delete Patient", Location = new Point(230, 440), Size = new Size(120, 35) };
+            btnDeletePatient.BackColor = Color.FromArgb(220, 53, 69);
+            btnDeletePatient.ForeColor = Color.White;
+            btnDeletePatient.FlatStyle = FlatStyle.Flat;
+
+            // Search
+            Label lblSearchPatient = new Label() { Text = "Search:", Location = new Point(10, 490), Size = new Size(60, 25) };
+            TextBox txtSearchPatient = new TextBox() { Name = "txtSearchPatient", Location = new Point(75, 490), Size = new Size(300, 25) };
+
             // Patient List
-            DataGridView dgvPatients = new DataGridView() { Name = "dgvPatients", Location = new Point(10, 490), Size = new Size(800, 250) };
+            DataGridView dgvPatients = new DataGridView() { Name = "dgvPatients", Location = new Point(10, 520), Size = new Size(800, 220) };
             dgvPatients.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvPatients.ReadOnly = true;
             dgvPatients.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             LoadPatients(dgvPatients);
 
-            mainPanel.Controls.AddRange(new Control[] { personalInfoGroup, medicalInfoGroup, btnSavePatient, btnClearPatient, dgvPatients });
+            txtSearchPatient.TextChanged += (s, e) => LoadPatients(dgvPatients, txtSearchPatient.Text);
+            btnDeletePatient.Click += (s, e) => DeletePatient(dgvPatients);
+
+            mainPanel.Controls.AddRange(new Control[] {
+                personalInfoGroup, medicalInfoGroup, btnSavePatient, btnClearPatient, btnDeletePatient,
+                lblSearchPatient, txtSearchPatient, dgvPatients
+            });
             patientTab.Controls.Add(mainPanel);
             mainTabControl.TabPages.Add(patientTab);
         }
@@ -280,6 +478,7 @@ namespace PatientManagementSystem
             Panel mainPanel = new Panel();
             mainPanel.Dock = DockStyle.Fill;
             mainPanel.Padding = new Padding(20);
+            mainPanel.AutoScroll = true;
 
             GroupBox appointmentGroup = new GroupBox(); appointmentGroup.Text = "Schedule Appointment";
             appointmentGroup.Size = new Size(800, 200);
@@ -330,12 +529,18 @@ namespace PatientManagementSystem
             btnSaveAppointment.FlatStyle = FlatStyle.Flat;
             btnSaveAppointment.Click += (s, e) => SaveAppointment(appointmentGroup);
 
+            // Search
+            Label lblSearchAppointment = new Label() { Text = "Search:", Location = new Point(10, 270), Size = new Size(60, 25) };
+            TextBox txtSearchAppointment = new TextBox() { Name = "txtSearchAppointment", Location = new Point(75, 270), Size = new Size(300, 25) };
+
             // Appointments List
-            DataGridView dgvAppointments = new DataGridView() { Name = "dgvAppointments", Location = new Point(10, 270), Size = new Size(800, 300) };
+            DataGridView dgvAppointments = new DataGridView() { Name = "dgvAppointments", Location = new Point(10, 300), Size = new Size(800, 270) };
             dgvAppointments.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvAppointments.ReadOnly = true;
             dgvAppointments.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             LoadAppointments(dgvAppointments);
+
+            txtSearchAppointment.TextChanged += (s, e) => LoadAppointments(dgvAppointments, txtSearchAppointment.Text);
 
             // Status buttons
             Button btnCompleted = new Button() { Text = "Mark Completed", Location = new Point(170, 220), Size = new Size(120, 35) };
@@ -350,7 +555,16 @@ namespace PatientManagementSystem
             btnCancelled.FlatStyle = FlatStyle.Flat;
             btnCancelled.Click += (s, e) => UpdateAppointmentStatus(dgvAppointments, "Cancelled");
 
-            mainPanel.Controls.AddRange(new Control[] { appointmentGroup, btnSaveAppointment, btnCompleted, btnCancelled, dgvAppointments });
+            Button btnDeleteAppointment = new Button() { Text = "Delete", Location = new Point(390, 220), Size = new Size(90, 35) };
+            btnDeleteAppointment.BackColor = Color.FromArgb(108, 117, 125);
+            btnDeleteAppointment.ForeColor = Color.White;
+            btnDeleteAppointment.FlatStyle = FlatStyle.Flat;
+            btnDeleteAppointment.Click += (s, e) => DeleteAppointment(dgvAppointments);
+
+            mainPanel.Controls.AddRange(new Control[] {
+                appointmentGroup, btnSaveAppointment, btnCompleted, btnCancelled, btnDeleteAppointment,
+                lblSearchAppointment, txtSearchAppointment, dgvAppointments
+            });
             appointmentTab.Controls.Add(mainPanel);
             mainTabControl.TabPages.Add(appointmentTab);
         }
@@ -364,6 +578,7 @@ namespace PatientManagementSystem
             Panel mainPanel = new Panel();
             mainPanel.Dock = DockStyle.Fill;
             mainPanel.Padding = new Padding(20);
+            mainPanel.AutoScroll = true;
 
             GroupBox prescriptionGroup = new GroupBox(); prescriptionGroup.Text = "Create Prescription";
             prescriptionGroup.Size = new Size(800, 300);
@@ -417,14 +632,29 @@ namespace PatientManagementSystem
             btnPrintPrescription.FlatStyle = FlatStyle.Flat;
             btnPrintPrescription.Click += (s, e) => PrintPrescription(prescriptionGroup, cmbPatient);
 
+            Button btnDeletePrescription = new Button() { Text = "Delete", Location = new Point(250, 320), Size = new Size(90, 35) };
+            btnDeletePrescription.BackColor = Color.FromArgb(220, 53, 69);
+            btnDeletePrescription.ForeColor = Color.White;
+            btnDeletePrescription.FlatStyle = FlatStyle.Flat;
+
+            // Search
+            Label lblSearchPrescription = new Label() { Text = "Search:", Location = new Point(10, 370), Size = new Size(60, 25) };
+            TextBox txtSearchPrescription = new TextBox() { Name = "txtSearchPrescription", Location = new Point(75, 370), Size = new Size(300, 25) };
+
             // Prescriptions List
-            DataGridView dgvPrescriptions = new DataGridView() { Name = "dgvPrescriptions", Location = new Point(10, 370), Size = new Size(800, 250) };
+            DataGridView dgvPrescriptions = new DataGridView() { Name = "dgvPrescriptions", Location = new Point(10, 400), Size = new Size(800, 220) };
             dgvPrescriptions.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvPrescriptions.ReadOnly = true;
             dgvPrescriptions.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             LoadPrescriptions(dgvPrescriptions);
 
-            mainPanel.Controls.AddRange(new Control[] { prescriptionGroup, btnSavePrescription, btnPrintPrescription, dgvPrescriptions });
+            txtSearchPrescription.TextChanged += (s, e) => LoadPrescriptions(dgvPrescriptions, txtSearchPrescription.Text);
+            btnDeletePrescription.Click += (s, e) => DeletePrescription(dgvPrescriptions);
+
+            mainPanel.Controls.AddRange(new Control[] {
+                prescriptionGroup, btnSavePrescription, btnPrintPrescription, btnDeletePrescription,
+                lblSearchPrescription, txtSearchPrescription, dgvPrescriptions
+            });
             prescriptionTab.Controls.Add(mainPanel);
             mainTabControl.TabPages.Add(prescriptionTab);
         }
@@ -438,6 +668,7 @@ namespace PatientManagementSystem
             Panel mainPanel = new Panel();
             mainPanel.Dock = DockStyle.Fill;
             mainPanel.Padding = new Padding(20);
+            mainPanel.AutoScroll = true;
 
             GroupBox billingGroup = new GroupBox(); billingGroup.Text = "Create Bill";
             billingGroup.Size = new Size(800, 200);
@@ -497,12 +728,23 @@ namespace PatientManagementSystem
             btnMarkPaid.ForeColor = Color.White;
             btnMarkPaid.FlatStyle = FlatStyle.Flat;
 
+            Button btnDeleteBill = new Button() { Text = "Delete", Location = new Point(230, 220), Size = new Size(90, 35) };
+            btnDeleteBill.BackColor = Color.FromArgb(220, 53, 69);
+            btnDeleteBill.ForeColor = Color.White;
+            btnDeleteBill.FlatStyle = FlatStyle.Flat;
+
+            // Search
+            Label lblSearchBill = new Label() { Text = "Search:", Location = new Point(10, 270), Size = new Size(60, 25) };
+            TextBox txtSearchBill = new TextBox() { Name = "txtSearchBill", Location = new Point(75, 270), Size = new Size(300, 25) };
+
             // Bills List
-            DataGridView dgvBills = new DataGridView() { Name = "dgvBills", Location = new Point(10, 270), Size = new Size(800, 300) };
+            DataGridView dgvBills = new DataGridView() { Name = "dgvBills", Location = new Point(10, 300), Size = new Size(800, 270) };
             dgvBills.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvBills.ReadOnly = true;
             dgvBills.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             LoadBills(dgvBills);
+
+            txtSearchBill.TextChanged += (s, e) => LoadBills(dgvBills, txtSearchBill.Text);
 
             btnMarkPaid.Click += (s, e) => {
                 if (dgvBills.SelectedRows.Count > 0)
@@ -513,7 +755,12 @@ namespace PatientManagementSystem
                 }
             };
 
-            mainPanel.Controls.AddRange(new Control[] { billingGroup, btnSaveBill, btnMarkPaid, dgvBills });
+            btnDeleteBill.Click += (s, e) => DeleteBill(dgvBills);
+
+            mainPanel.Controls.AddRange(new Control[] {
+                billingGroup, btnSaveBill, btnMarkPaid, btnDeleteBill,
+                lblSearchBill, txtSearchBill, dgvBills
+            });
             billingTab.Controls.Add(mainPanel);
             mainTabControl.TabPages.Add(billingTab);
         }
@@ -653,6 +900,18 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                if (!Regex.IsMatch(txtPhone.Text.Trim(), @"^[0-9+\-\s()]{7,20}$"))
+                {
+                    MessageBox.Show("Please enter a valid phone number.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(txtEmail.Text) && !Regex.IsMatch(txtEmail.Text.Trim(), @"^[^@\s]+@[^@\s]+\.[^@\s]+$"))
+                {
+                    MessageBox.Show("Please enter a valid email address.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
                 connection.Open();
                 string query = @"INSERT INTO Patients
                     (FirstName, LastName, DateOfBirth, Gender, PhoneNumber, Email, Address, EmergencyContact, BloodGroup, MedicalHistory)
@@ -660,25 +919,29 @@ namespace PatientManagementSystem
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
-                    cmd.Parameters.AddWithValue("@fname", txtFirstName.Text);
-                    cmd.Parameters.AddWithValue("@lname", txtLastName.Text);
+                    cmd.Parameters.AddWithValue("@fname", txtFirstName.Text.Trim());
+                    cmd.Parameters.AddWithValue("@lname", txtLastName.Text.Trim());
                     cmd.Parameters.AddWithValue("@dob", dtpDOB.Value.Date);
                     cmd.Parameters.AddWithValue("@gender", cmbGender.Text);
-                    cmd.Parameters.AddWithValue("@phone", txtPhone.Text);
-                    cmd.Parameters.AddWithValue("@email", txtEmail.Text);
-                    cmd.Parameters.AddWithValue("@address", txtAddress.Text);
-                    cmd.Parameters.AddWithValue("@emergency", txtEmergency.Text);
+                    cmd.Parameters.AddWithValue("@phone", txtPhone.Text.Trim());
+                    cmd.Parameters.AddWithValue("@email", txtEmail.Text.Trim());
+                    cmd.Parameters.AddWithValue("@address", txtAddress.Text.Trim());
+                    cmd.Parameters.AddWithValue("@emergency", txtEmergency.Text.Trim());
                     cmd.Parameters.AddWithValue("@bloodgroup", cmbBloodGroup.Text);
-                    cmd.Parameters.AddWithValue("@medical", txtMedicalHistory.Text);
+                    cmd.Parameters.AddWithValue("@medical", txtMedicalHistory.Text.Trim());
 
                     cmd.ExecuteNonQuery();
                 }
                 connection.Close();
 
+                LogAudit("Register Patient", $"{txtFirstName.Text.Trim()} {txtLastName.Text.Trim()}");
+
                 MessageBox.Show("Patient registered successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 ClearPatientForm(personalInfo, medicalInfo);
 
                 // Refresh patient list
+                TextBox txtSearchPatient = personalInfo.Parent.Controls["txtSearchPatient"] as TextBox;
+                txtSearchPatient?.Clear();
                 DataGridView dgvPatients = personalInfo.Parent.Controls["dgvPatients"] as DataGridView;
                 LoadPatients(dgvPatients);
 
@@ -693,15 +956,21 @@ namespace PatientManagementSystem
             }
         }
 
-        private void LoadPatients(DataGridView dgv)
+        private void LoadPatients(DataGridView dgv, string search = "")
         {
             try
             {
                 connection.Open();
-                string query = "SELECT PatientID, FirstName || ' ' || LastName as FullName, DateOfBirth, Gender, PhoneNumber, Email FROM Patients ORDER BY RegistrationDate DESC";
+                string query = "SELECT PatientID, FirstName || ' ' || LastName as FullName, DateOfBirth, Gender, PhoneNumber, Email FROM Patients";
+                if (!string.IsNullOrWhiteSpace(search))
+                    query += " WHERE FirstName LIKE @s OR LastName LIKE @s OR PhoneNumber LIKE @s";
+                query += " ORDER BY RegistrationDate DESC";
 
                 using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
                 {
+                    if (!string.IsNullOrWhiteSpace(search))
+                        adapter.SelectCommand.Parameters.AddWithValue("@s", $"%{search.Trim()}%");
+
                     DataTable dt = new DataTable();
                     adapter.Fill(dt);
                     dgv.DataSource = dt;
@@ -746,27 +1015,59 @@ namespace PatientManagementSystem
 
         private void RefreshPatientComboBoxes()
         {
-            foreach (TabPage tab in mainTabControl.TabPages)
+            foreach (Control control in FindControlsRecursive(mainTabControl, c => c is ComboBox cmb && cmb.Name == "cmbPatient"))
             {
-                foreach (Control control in tab.Controls)
+                LoadPatientsInComboBox((ComboBox)control);
+            }
+        }
+
+        private IEnumerable<Control> FindControlsRecursive(Control root, Func<Control, bool> predicate)
+        {
+            foreach (Control child in root.Controls)
+            {
+                if (predicate(child))
+                    yield return child;
+
+                foreach (Control nested in FindControlsRecursive(child, predicate))
+                    yield return nested;
+            }
+        }
+
+        private void RefreshAllGrids()
+        {
+            DataGridView dgvPatients = FindControlsRecursive(mainTabControl, c => c.Name == "dgvPatients").FirstOrDefault() as DataGridView;
+            if (dgvPatients != null) LoadPatients(dgvPatients);
+
+            DataGridView dgvAppointments = FindControlsRecursive(mainTabControl, c => c.Name == "dgvAppointments").FirstOrDefault() as DataGridView;
+            if (dgvAppointments != null) LoadAppointments(dgvAppointments);
+
+            DataGridView dgvPrescriptions = FindControlsRecursive(mainTabControl, c => c.Name == "dgvPrescriptions").FirstOrDefault() as DataGridView;
+            if (dgvPrescriptions != null) LoadPrescriptions(dgvPrescriptions);
+
+            DataGridView dgvBills = FindControlsRecursive(mainTabControl, c => c.Name == "dgvBills").FirstOrDefault() as DataGridView;
+            if (dgvBills != null) LoadBills(dgvBills);
+        }
+
+        private void LogAudit(string action, string details)
+        {
+            try
+            {
+                using (SQLiteConnection auditConn = new SQLiteConnection(connectionString))
                 {
-                    if (control is Panel panel)
+                    auditConn.Open();
+                    using (SQLiteCommand cmd = new SQLiteCommand(
+                        "INSERT INTO AuditLog (Username, Action, Details) VALUES (@u, @a, @d)", auditConn))
                     {
-                        foreach (Control panelControl in panel.Controls)
-                        {
-                            if (panelControl is GroupBox group)
-                            {
-                                foreach (Control groupControl in group.Controls)
-                                {
-                                    if (groupControl is ComboBox cmb && cmb.Name == "cmbPatient")
-                                    {
-                                        LoadPatientsInComboBox(cmb);
-                                    }
-                                }
-                            }
-                        }
+                        cmd.Parameters.AddWithValue("@u", currentUsername ?? "unknown");
+                        cmd.Parameters.AddWithValue("@a", action);
+                        cmd.Parameters.AddWithValue("@d", details ?? "");
+                        cmd.ExecuteNonQuery();
                     }
                 }
+            }
+            catch
+            {
+                // Audit logging must never block the primary workflow.
             }
         }
 
@@ -780,6 +1081,56 @@ namespace PatientManagementSystem
                     cmb.SelectedIndex = -1;
                 else if (control is DateTimePicker dtp)
                     dtp.Value = DateTime.Today;
+            }
+        }
+
+        private void DeletePatient(DataGridView dgv)
+        {
+            if (dgv.SelectedRows.Count == 0)
+                return;
+
+            DialogResult confirm = MessageBox.Show(
+                "Deleting this patient will also permanently delete all of their appointments, prescriptions, and bills. Continue?",
+                "Confirm Delete", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes)
+                return;
+
+            int patientId = Convert.ToInt32(dgv.SelectedRows[0].Cells["PatientID"].Value);
+
+            try
+            {
+                connection.Open();
+                using (SQLiteTransaction tx = connection.BeginTransaction())
+                {
+                    DeleteByPatientId("DELETE FROM Billing WHERE PatientID = @id", patientId, tx);
+                    DeleteByPatientId("DELETE FROM Prescriptions WHERE PatientID = @id", patientId, tx);
+                    DeleteByPatientId("DELETE FROM Appointments WHERE PatientID = @id", patientId, tx);
+                    DeleteByPatientId("DELETE FROM Patients WHERE PatientID = @id", patientId, tx);
+                    tx.Commit();
+                }
+                connection.Close();
+
+                LogAudit("Delete Patient", $"PatientID {patientId}");
+
+                RefreshAllGrids();
+                RefreshPatientComboBoxes();
+
+                MessageBox.Show("Patient and all related records were deleted.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error deleting patient: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void DeleteByPatientId(string sql, int patientId, SQLiteTransaction tx)
+        {
+            using (SQLiteCommand cmd = new SQLiteCommand(sql, connection, tx))
+            {
+                cmd.Parameters.AddWithValue("@id", patientId);
+                cmd.ExecuteNonQuery();
             }
         }
 
@@ -802,6 +1153,24 @@ namespace PatientManagementSystem
                 }
 
                 connection.Open();
+
+                using (SQLiteCommand conflictCmd = new SQLiteCommand(
+                    "SELECT COUNT(*) FROM Appointments WHERE DoctorName = @doctor AND AppointmentDate = @date AND AppointmentTime = @time AND Status != 'Cancelled'",
+                    connection))
+                {
+                    conflictCmd.Parameters.AddWithValue("@doctor", txtDoctor.Text.Trim());
+                    conflictCmd.Parameters.AddWithValue("@date", dtpAppDate.Value.Date);
+                    conflictCmd.Parameters.AddWithValue("@time", cmbAppTime.Text);
+
+                    int conflictCount = Convert.ToInt32(conflictCmd.ExecuteScalar());
+                    if (conflictCount > 0)
+                    {
+                        connection.Close();
+                        MessageBox.Show("This doctor already has an appointment at the selected date and time.", "Scheduling Conflict", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                }
+
                 string query = @"INSERT INTO Appointments
                     (PatientID, DoctorName, AppointmentDate, AppointmentTime, Department, Notes)
                     VALUES (@patientid, @doctor, @date, @time, @dept, @notes)";
@@ -809,15 +1178,17 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@patientid", ((DataRowView)cmbPatient.SelectedItem)["PatientID"]);
-                    cmd.Parameters.AddWithValue("@doctor", txtDoctor.Text);
+                    cmd.Parameters.AddWithValue("@doctor", txtDoctor.Text.Trim());
                     cmd.Parameters.AddWithValue("@date", dtpAppDate.Value.Date);
                     cmd.Parameters.AddWithValue("@time", cmbAppTime.Text);
                     cmd.Parameters.AddWithValue("@dept", cmbDepartment.Text);
-                    cmd.Parameters.AddWithValue("@notes", txtNotes.Text);
+                    cmd.Parameters.AddWithValue("@notes", txtNotes.Text.Trim());
 
                     cmd.ExecuteNonQuery();
                 }
                 connection.Close();
+
+                LogAudit("Schedule Appointment", $"Doctor {txtDoctor.Text.Trim()} on {dtpAppDate.Value.Date:d} {cmbAppTime.Text}");
 
                 MessageBox.Show("Appointment scheduled successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
@@ -830,6 +1201,8 @@ namespace PatientManagementSystem
                         cmb.SelectedIndex = -1;
                 }
 
+                TextBox txtSearchAppointment = appointmentGroup.Parent.Controls["txtSearchAppointment"] as TextBox;
+                txtSearchAppointment?.Clear();
                 DataGridView dgvAppointments = appointmentGroup.Parent.Controls["dgvAppointments"] as DataGridView;
                 LoadAppointments(dgvAppointments);
             }
@@ -841,7 +1214,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void LoadAppointments(DataGridView dgv)
+        private void LoadAppointments(DataGridView dgv, string search = "")
         {
             try
             {
@@ -849,11 +1222,18 @@ namespace PatientManagementSystem
                 string query = @"SELECT a.AppointmentID, p.FirstName || ' ' || p.LastName as PatientName,
                     a.DoctorName, a.AppointmentDate, a.AppointmentTime, a.Department, a.Status, a.Notes
                     FROM Appointments a
-                    JOIN Patients p ON a.PatientID = p.PatientID
-                    ORDER BY a.AppointmentDate DESC, a.AppointmentTime";
+                    JOIN Patients p ON a.PatientID = p.PatientID";
+
+                if (!string.IsNullOrWhiteSpace(search))
+                    query += " WHERE p.FirstName LIKE @s OR p.LastName LIKE @s OR a.DoctorName LIKE @s";
+
+                query += " ORDER BY a.AppointmentDate DESC, a.AppointmentTime";
 
                 using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
                 {
+                    if (!string.IsNullOrWhiteSpace(search))
+                        adapter.SelectCommand.Parameters.AddWithValue("@s", $"%{search.Trim()}%");
+
                     DataTable dt = new DataTable();
                     adapter.Fill(dt);
                     dgv.DataSource = dt;
@@ -872,6 +1252,13 @@ namespace PatientManagementSystem
         {
             if (dgv.SelectedRows.Count > 0)
             {
+                if (status == "Cancelled")
+                {
+                    DialogResult confirm = MessageBox.Show("Are you sure you want to cancel this appointment?", "Confirm Cancellation", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    if (confirm != DialogResult.Yes)
+                        return;
+                }
+
                 try
                 {
                     int appointmentId = Convert.ToInt32(dgv.SelectedRows[0].Cells["AppointmentID"].Value);
@@ -887,6 +1274,8 @@ namespace PatientManagementSystem
                     }
                     connection.Close();
 
+                    LogAudit("Update Appointment Status", $"AppointmentID {appointmentId} -> {status}");
+
                     MessageBox.Show($"Appointment marked as {status.ToLower()}!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                     LoadAppointments(dgv);
                 }
@@ -896,6 +1285,46 @@ namespace PatientManagementSystem
                         connection.Close();
                     MessageBox.Show($"Error updating appointment: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
+            }
+        }
+
+        private void DeleteAppointment(DataGridView dgv)
+        {
+            if (dgv.SelectedRows.Count == 0)
+                return;
+
+            DialogResult confirm = MessageBox.Show("Delete this appointment? This cannot be undone.", "Confirm Delete", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes)
+                return;
+
+            try
+            {
+                int appointmentId = Convert.ToInt32(dgv.SelectedRows[0].Cells["AppointmentID"].Value);
+
+                connection.Open();
+                using (SQLiteCommand unlinkCmd = new SQLiteCommand("UPDATE Billing SET AppointmentID = NULL WHERE AppointmentID = @id", connection))
+                {
+                    unlinkCmd.Parameters.AddWithValue("@id", appointmentId);
+                    unlinkCmd.ExecuteNonQuery();
+                }
+
+                using (SQLiteCommand deleteCmd = new SQLiteCommand("DELETE FROM Appointments WHERE AppointmentID = @id", connection))
+                {
+                    deleteCmd.Parameters.AddWithValue("@id", appointmentId);
+                    deleteCmd.ExecuteNonQuery();
+                }
+                connection.Close();
+
+                LogAudit("Delete Appointment", $"AppointmentID {appointmentId}");
+
+                MessageBox.Show("Appointment deleted.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                LoadAppointments(dgv);
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error deleting appointment: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -925,16 +1354,18 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@patientid", ((DataRowView)cmbPatient.SelectedItem)["PatientID"]);
-                    cmd.Parameters.AddWithValue("@doctor", txtDoctor.Text);
+                    cmd.Parameters.AddWithValue("@doctor", txtDoctor.Text.Trim());
                     cmd.Parameters.AddWithValue("@date", DateTime.Today);
-                    cmd.Parameters.AddWithValue("@diagnosis", txtDiagnosis.Text);
-                    cmd.Parameters.AddWithValue("@medicines", txtMedicines.Text);
-                    cmd.Parameters.AddWithValue("@instructions", txtInstructions.Text);
+                    cmd.Parameters.AddWithValue("@diagnosis", txtDiagnosis.Text.Trim());
+                    cmd.Parameters.AddWithValue("@medicines", txtMedicines.Text.Trim());
+                    cmd.Parameters.AddWithValue("@instructions", txtInstructions.Text.Trim());
                     cmd.Parameters.AddWithValue("@followup", dtpFollowUp.Value.Date);
 
                     cmd.ExecuteNonQuery();
                 }
                 connection.Close();
+
+                LogAudit("Create Prescription", $"Diagnosis: {txtDiagnosis.Text.Trim()}");
 
                 MessageBox.Show("Prescription saved successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
@@ -949,6 +1380,8 @@ namespace PatientManagementSystem
                         dtp.Value = DateTime.Today;
                 }
 
+                TextBox txtSearchPrescription = prescriptionGroup.Parent.Controls["txtSearchPrescription"] as TextBox;
+                txtSearchPrescription?.Clear();
                 DataGridView dgvPrescriptions = prescriptionGroup.Parent.Controls["dgvPrescriptions"] as DataGridView;
                 LoadPrescriptions(dgvPrescriptions);
             }
@@ -1021,7 +1454,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void LoadPrescriptions(DataGridView dgv)
+        private void LoadPrescriptions(DataGridView dgv, string search = "")
         {
             try
             {
@@ -1029,11 +1462,18 @@ namespace PatientManagementSystem
                 string query = @"SELECT pr.PrescriptionID, p.FirstName || ' ' || p.LastName as PatientName,
                     pr.DoctorName, pr.PrescriptionDate, pr.Diagnosis, pr.Medicines, pr.FollowUpDate
                     FROM Prescriptions pr
-                    JOIN Patients p ON pr.PatientID = p.PatientID
-                    ORDER BY pr.PrescriptionDate DESC";
+                    JOIN Patients p ON pr.PatientID = p.PatientID";
+
+                if (!string.IsNullOrWhiteSpace(search))
+                    query += " WHERE p.FirstName LIKE @s OR p.LastName LIKE @s OR pr.Diagnosis LIKE @s";
+
+                query += " ORDER BY pr.PrescriptionDate DESC";
 
                 using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
                 {
+                    if (!string.IsNullOrWhiteSpace(search))
+                        adapter.SelectCommand.Parameters.AddWithValue("@s", $"%{search.Trim()}%");
+
                     DataTable dt = new DataTable();
                     adapter.Fill(dt);
                     dgv.DataSource = dt;
@@ -1045,6 +1485,40 @@ namespace PatientManagementSystem
                 if (connection.State == ConnectionState.Open)
                     connection.Close();
                 MessageBox.Show($"Error loading prescriptions: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void DeletePrescription(DataGridView dgv)
+        {
+            if (dgv.SelectedRows.Count == 0)
+                return;
+
+            DialogResult confirm = MessageBox.Show("Delete this prescription? This cannot be undone.", "Confirm Delete", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes)
+                return;
+
+            try
+            {
+                int prescriptionId = Convert.ToInt32(dgv.SelectedRows[0].Cells["PrescriptionID"].Value);
+
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand("DELETE FROM Prescriptions WHERE PrescriptionID = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", prescriptionId);
+                    cmd.ExecuteNonQuery();
+                }
+                connection.Close();
+
+                LogAudit("Delete Prescription", $"PrescriptionID {prescriptionId}");
+
+                MessageBox.Show("Prescription deleted.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                LoadPrescriptions(dgv);
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error deleting prescription: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1073,7 +1547,7 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@patientid", ((DataRowView)cmbPatient.SelectedItem)["PatientID"]);
-                    cmd.Parameters.AddWithValue("@service", txtService.Text);
+                    cmd.Parameters.AddWithValue("@service", txtService.Text.Trim());
                     cmd.Parameters.AddWithValue("@amount", numAmount.Value);
                     cmd.Parameters.AddWithValue("@status", cmbStatus.Text);
                     cmd.Parameters.AddWithValue("@method", cmbPaymentMethod.Text);
@@ -1083,6 +1557,8 @@ namespace PatientManagementSystem
                     cmd.ExecuteNonQuery();
                 }
                 connection.Close();
+
+                LogAudit("Create Bill", $"Service: {txtService.Text.Trim()}, Amount: {numAmount.Value}");
 
                 MessageBox.Show("Bill created successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
@@ -1097,6 +1573,8 @@ namespace PatientManagementSystem
                         cmb.SelectedIndex = -1;
                 }
 
+                TextBox txtSearchBill = billingGroup.Parent.Controls["txtSearchBill"] as TextBox;
+                txtSearchBill?.Clear();
                 DataGridView dgvBills = billingGroup.Parent.Controls["dgvBills"] as DataGridView;
                 LoadBills(dgvBills);
             }
@@ -1108,7 +1586,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void LoadBills(DataGridView dgv)
+        private void LoadBills(DataGridView dgv, string search = "")
         {
             try
             {
@@ -1116,11 +1594,18 @@ namespace PatientManagementSystem
                 string query = @"SELECT b.BillID, p.FirstName || ' ' || p.LastName as PatientName,
                     b.ServiceDescription, b.Amount, b.PaymentStatus, b.PaymentMethod, b.BillDate, b.DueDate
                     FROM Billing b
-                    JOIN Patients p ON b.PatientID = p.PatientID
-                    ORDER BY b.BillDate DESC";
+                    JOIN Patients p ON b.PatientID = p.PatientID";
+
+                if (!string.IsNullOrWhiteSpace(search))
+                    query += " WHERE p.FirstName LIKE @s OR p.LastName LIKE @s OR b.PaymentStatus LIKE @s";
+
+                query += " ORDER BY b.BillDate DESC";
 
                 using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
                 {
+                    if (!string.IsNullOrWhiteSpace(search))
+                        adapter.SelectCommand.Parameters.AddWithValue("@s", $"%{search.Trim()}%");
+
                     DataTable dt = new DataTable();
                     adapter.Fill(dt);
                     dgv.DataSource = dt;
@@ -1150,6 +1635,8 @@ namespace PatientManagementSystem
                 }
                 connection.Close();
 
+                LogAudit("Update Bill Status", $"BillID {billId} -> {status}");
+
                 MessageBox.Show($"Bill marked as {status.ToLower()}!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
             catch (Exception ex)
@@ -1157,6 +1644,40 @@ namespace PatientManagementSystem
                 if (connection.State == ConnectionState.Open)
                     connection.Close();
                 MessageBox.Show($"Error updating bill: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void DeleteBill(DataGridView dgv)
+        {
+            if (dgv.SelectedRows.Count == 0)
+                return;
+
+            DialogResult confirm = MessageBox.Show("Delete this bill? This cannot be undone.", "Confirm Delete", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+            if (confirm != DialogResult.Yes)
+                return;
+
+            try
+            {
+                int billId = Convert.ToInt32(dgv.SelectedRows[0].Cells["BillID"].Value);
+
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand("DELETE FROM Billing WHERE BillID = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", billId);
+                    cmd.ExecuteNonQuery();
+                }
+                connection.Close();
+
+                LogAudit("Delete Bill", $"BillID {billId}");
+
+                MessageBox.Show("Bill deleted.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                LoadBills(dgv);
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error deleting bill: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1336,12 +1857,52 @@ namespace PatientManagementSystem
                 {
                     string sourcePath = Path.Combine(Application.StartupPath, "PatientManagement.db");
                     File.Copy(sourcePath, saveDialog.FileName, true);
+                    LogAudit("Backup Database", saveDialog.FileName);
                     MessageBox.Show("Database backed up successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 }
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error backing up database: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ShowAuditLog(object sender, EventArgs e)
+        {
+            try
+            {
+                connection.Open();
+                DataTable dt = new DataTable();
+                using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(
+                    "SELECT Username, Action, Details, Timestamp FROM AuditLog ORDER BY Timestamp DESC", connection))
+                {
+                    adapter.Fill(dt);
+                }
+                connection.Close();
+
+                using (Form auditForm = new Form())
+                {
+                    auditForm.Text = "Audit Log";
+                    auditForm.Size = new Size(750, 500);
+                    auditForm.StartPosition = FormStartPosition.CenterParent;
+
+                    DataGridView dgv = new DataGridView()
+                    {
+                        Dock = DockStyle.Fill,
+                        ReadOnly = true,
+                        AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                        DataSource = dt
+                    };
+
+                    auditForm.Controls.Add(dgv);
+                    auditForm.ShowDialog(this);
+                }
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error loading audit log: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -1377,7 +1938,30 @@ Features: Patient Registration, Appointments, Prescriptions, Billing & Reports
         {
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+
+            string dbPath = Path.Combine(Application.StartupPath, "PatientManagement.db");
+            string connectionString = $"Data Source={dbPath};Version=3;";
+
+            try
+            {
+                DbInit.EnsureSchema(connectionString);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Database initialization error: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            string authenticatedUsername;
+            using (LoginForm loginForm = new LoginForm(connectionString))
+            {
+                if (loginForm.ShowDialog() != DialogResult.OK)
+                    return;
+
+                authenticatedUsername = loginForm.AuthenticatedUsername;
+            }
+
+            Application.Run(new MainForm(authenticatedUsername));
         }
     }
 }
