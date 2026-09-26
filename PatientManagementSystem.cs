@@ -995,12 +995,14 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 using (SQLiteDataReader reader = cmd.ExecuteReader())
                 {
+                    DataTable dt = new DataTable();
+                    dt.Load(reader);
+
+                    // DataSource must be cleared before Items can be touched on an already-bound ComboBox.
+                    cmb.DataSource = null;
                     cmb.Items.Clear();
                     cmb.DisplayMember = "DisplayName";
                     cmb.ValueMember = "PatientID";
-
-                    DataTable dt = new DataTable();
-                    dt.Load(reader);
                     cmb.DataSource = dt;
                 }
                 connection.Close();
