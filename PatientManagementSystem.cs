@@ -259,8 +259,8 @@ namespace PatientManagementSystem
         public MainForm(string username)
         {
             currentUsername = username;
-            InitializeComponent();
             InitializeDatabase();
+            InitializeComponent();
         }
 
         private void InitializeComponent()
@@ -1961,7 +1961,14 @@ Features: Patient Registration, Appointments, Prescriptions, Billing & Reports
                 authenticatedUsername = loginForm.AuthenticatedUsername;
             }
 
-            Application.Run(new MainForm(authenticatedUsername));
+            try
+            {
+                Application.Run(new MainForm(authenticatedUsername));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"The application failed to start: {ex.Message}", "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }
