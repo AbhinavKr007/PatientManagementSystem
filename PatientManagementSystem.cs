@@ -7,6 +7,8 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using System.Globalization;
+using System.Drawing.Printing;
+using System.Text;
 
 namespace PatientManagementSystem
 {
@@ -413,6 +415,7 @@ namespace PatientManagementSystem
             btnPrintPrescription.BackColor = Color.FromArgb(108, 117, 125);
             btnPrintPrescription.ForeColor = Color.White;
             btnPrintPrescription.FlatStyle = FlatStyle.Flat;
+            btnPrintPrescription.Click += (s, e) => PrintPrescription(prescriptionGroup, cmbPatient);
 
             // Prescriptions List
             DataGridView dgvPrescriptions = new DataGridView() { Name = "dgvPrescriptions", Location = new Point(10, 370), Size = new Size(800, 250) };
@@ -957,6 +960,67 @@ namespace PatientManagementSystem
             }
         }
 
+        private void PrintPrescription(GroupBox prescriptionGroup, ComboBox cmbPatient)
+        {
+            TextBox txtDoctor = prescriptionGroup.Controls["txtDoctor"] as TextBox;
+            TextBox txtDiagnosis = prescriptionGroup.Controls["txtDiagnosis"] as TextBox;
+            TextBox txtMedicines = prescriptionGroup.Controls["txtMedicines"] as TextBox;
+            TextBox txtInstructions = prescriptionGroup.Controls["txtInstructions"] as TextBox;
+            DateTimePicker dtpFollowUp = prescriptionGroup.Controls["dtpFollowUp"] as DateTimePicker;
+
+            if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtDoctor.Text) ||
+                string.IsNullOrWhiteSpace(txtDiagnosis.Text) || string.IsNullOrWhiteSpace(txtMedicines.Text))
+            {
+                MessageBox.Show("Please fill in the prescription fields before printing.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string patientName = ((DataRowView)cmbPatient.SelectedItem)["DisplayName"].ToString();
+
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("PRESCRIPTION");
+            sb.AppendLine($"Date: {DateTime.Today:d}");
+            sb.AppendLine();
+            sb.AppendLine($"Patient: {patientName}");
+            sb.AppendLine($"Doctor: {txtDoctor.Text}");
+            sb.AppendLine();
+            sb.AppendLine($"Diagnosis: {txtDiagnosis.Text}");
+            sb.AppendLine();
+            sb.AppendLine("Medicines:");
+            sb.AppendLine(txtMedicines.Text);
+            if (!string.IsNullOrWhiteSpace(txtInstructions.Text))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"Instructions: {txtInstructions.Text}");
+            }
+            sb.AppendLine();
+            sb.AppendLine($"Follow-up Date: {dtpFollowUp.Value.Date:d}");
+
+            string content = sb.ToString();
+
+            try
+            {
+                PrintDocument printDoc = new PrintDocument();
+                Font printFont = new Font("Segoe UI", 11F);
+                printDoc.PrintPage += (s, e) =>
+                {
+                    e.Graphics.DrawString(content, printFont, Brushes.Black, e.MarginBounds);
+                };
+
+                using (PrintPreviewDialog previewDialog = new PrintPreviewDialog())
+                {
+                    previewDialog.Document = printDoc;
+                    previewDialog.Width = 800;
+                    previewDialog.Height = 900;
+                    previewDialog.ShowDialog();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error printing prescription: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         private void LoadPrescriptions(DataGridView dgv)
         {
             try
@@ -1238,7 +1302,7 @@ namespace PatientManagementSystem
                         foreach (DataGridViewRow row in dgv.Rows)
                         {
                             if (row.IsNewRow) continue;
-                            string rowData = string.Join(",", row.Cells.Cast<DataGridViewCell>().Select(cell => $"\"{cell.Value}\""));
+                            string rowData = string.Join(",", row.Cells.Cast<DataGridViewCell>().Select(cell => EscapeCsvField(cell.Value?.ToString() ?? "")));
                             sw.WriteLine(rowData);
                         }
                     }
@@ -1250,6 +1314,13 @@ namespace PatientManagementSystem
             {
                 MessageBox.Show($"Error exporting report: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private string EscapeCsvField(string field)
+        {
+            if (field.Contains(",") || field.Contains("\"") || field.Contains("\n") || field.Contains("\r"))
+                return "\"" + field.Replace("\"", "\"\"") + "\"";
+            return field;
         }
 
         // MENU HANDLERS
