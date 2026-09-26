@@ -1071,6 +1071,13 @@ namespace PatientManagementSystem
             }
         }
 
+        private DateTime ClampToPickerRange(DateTime value, DateTimePicker picker)
+        {
+            if (value < picker.MinDate) return picker.MinDate;
+            if (value > picker.MaxDate) return picker.MaxDate;
+            return value;
+        }
+
         private void ClearPatientForm(GroupBox personalInfo, GroupBox medicalInfo)
         {
             foreach (Control control in personalInfo.Controls.Cast<Control>().Concat(medicalInfo.Controls.Cast<Control>()))
@@ -1080,7 +1087,7 @@ namespace PatientManagementSystem
                 else if (control is ComboBox cmb)
                     cmb.SelectedIndex = -1;
                 else if (control is DateTimePicker dtp)
-                    dtp.Value = DateTime.Today;
+                    dtp.Value = ClampToPickerRange(DateTime.Today, dtp);
             }
         }
 
@@ -1377,7 +1384,7 @@ namespace PatientManagementSystem
                     else if (control is ComboBox cmb && cmb.Name != "cmbPatient")
                         cmb.SelectedIndex = -1;
                     else if (control is DateTimePicker dtp)
-                        dtp.Value = DateTime.Today;
+                        dtp.Value = ClampToPickerRange(DateTime.Today, dtp);
                 }
 
                 TextBox txtSearchPrescription = prescriptionGroup.Parent.Controls["txtSearchPrescription"] as TextBox;
