@@ -479,8 +479,26 @@ namespace PatientManagementSystem
             mainTabControl = new TabControl();
             mainTabControl.Dock = DockStyle.Fill;
             mainTabControl.Font = new Font("Segoe UI", 10F);
-            mainTabControl.ItemSize = new Size(150, 30);
+            mainTabControl.ItemSize = new Size(150, 34);
             mainTabControl.SizeMode = TabSizeMode.Fixed;
+
+            // Flat, modern tab strip: solid accent color on the selected tab
+            // instead of the classic beveled Windows tab look. Purely visual --
+            // doesn't touch any tab's own content.
+            mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+            mainTabControl.DrawItem += (s, e) => {
+                TabPage page = mainTabControl.TabPages[e.Index];
+                bool selected = e.Index == mainTabControl.SelectedIndex;
+
+                using (SolidBrush backBrush = new SolidBrush(selected ? Color.FromArgb(0, 123, 255) : Color.White))
+                {
+                    e.Graphics.FillRectangle(backBrush, e.Bounds);
+                }
+
+                TextRenderer.DrawText(e.Graphics, page.Text, mainTabControl.Font, e.Bounds,
+                    selected ? Color.White : Color.FromArgb(73, 80, 87),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            };
 
             // Create tabs
             CreateHomeTab();
@@ -802,10 +820,7 @@ namespace PatientManagementSystem
             summaryPanel.Controls.AddRange(new Control[] { appointmentsCard, pendingBillsCard, revenueCard, btnRefreshDashboard });
 
             // Today's Appointments
-            GroupBox appointmentsGroup = new GroupBox(); appointmentsGroup.Text = "Today's Appointments";
-            appointmentsGroup.Size = new Size(800, 250);
-            appointmentsGroup.Location = new Point(10, 162);
-            appointmentsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel appointmentsGroup = CreateSectionCard("Today's Appointments", new Size(800, 250), new Point(10, 162));
             appointmentsGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             DataGridView dgvDashAppointments = new DataGridView() {
@@ -819,10 +834,7 @@ namespace PatientManagementSystem
             appointmentsGroup.Controls.Add(dgvDashAppointments);
 
             // Pending Bills
-            GroupBox pendingBillsGroup = new GroupBox(); pendingBillsGroup.Text = "Pending Bills";
-            pendingBillsGroup.Size = new Size(800, 250);
-            pendingBillsGroup.Location = new Point(10, 422);
-            pendingBillsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel pendingBillsGroup = CreateSectionCard("Pending Bills", new Size(800, 250), new Point(10, 422));
             pendingBillsGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             DataGridView dgvDashPendingBills = new DataGridView() {
@@ -866,6 +878,45 @@ namespace PatientManagementSystem
 
             card.Controls.AddRange(new Control[] { lblTitle, lblValue });
             return (card, lblValue);
+        }
+
+        // Flat "card" panel used in place of the native GroupBox for every
+        // form section: a colored accent strip + bold title instead of a
+        // GroupBox's boxed caption/border, with a thin light border drawn by
+        // hand for a flatter, more modern look. Existing child controls were
+        // already positioned assuming ~28px of header space (a GroupBox's
+        // border + caption), so this occupies the same space and nothing
+        // else needs to move.
+        private Panel CreateSectionCard(string title, Size size, Point location)
+        {
+            Panel card = new Panel();
+            card.Size = size;
+            card.Location = location;
+            card.BackColor = Color.White;
+
+            Panel accent = new Panel();
+            accent.Dock = DockStyle.Top;
+            accent.Height = 3;
+            accent.BackColor = Color.FromArgb(0, 123, 255);
+
+            Label lblTitle = new Label() {
+                Text = title,
+                Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(33, 37, 41),
+                Location = new Point(15, 8),
+                AutoSize = true
+            };
+
+            card.Paint += (s, e) => {
+                using (Pen borderPen = new Pen(Color.FromArgb(222, 226, 230)))
+                {
+                    e.Graphics.DrawRectangle(borderPen, 0, 0, card.Width - 1, card.Height - 1);
+                }
+            };
+
+            card.Controls.Add(lblTitle);
+            card.Controls.Add(accent);
+            return card;
         }
 
         private void RefreshDashboard()
@@ -1024,10 +1075,7 @@ namespace PatientManagementSystem
             mainPanel.AutoScroll = true;
 
             // Create form controls
-            GroupBox personalInfoGroup = new GroupBox(); personalInfoGroup.Text = "Personal Information";
-            personalInfoGroup.Size = new Size(800, 250);
-            personalInfoGroup.Location = new Point(10, 10);
-            personalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel personalInfoGroup = CreateSectionCard("Personal Information", new Size(800, 250), new Point(10, 10));
             personalInfoGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // First Name
@@ -1071,10 +1119,7 @@ namespace PatientManagementSystem
             });
 
             // Medical Information Group
-            GroupBox medicalInfoGroup = new GroupBox(); medicalInfoGroup.Text = "Medical Information";
-            medicalInfoGroup.Size = new Size(800, 150);
-            medicalInfoGroup.Location = new Point(10, 270);
-            medicalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel medicalInfoGroup = CreateSectionCard("Medical Information", new Size(800, 150), new Point(10, 270));
             medicalInfoGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Blood Group
@@ -1161,10 +1206,7 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
             mainPanel.AutoScroll = true;
 
-            GroupBox appointmentGroup = new GroupBox(); appointmentGroup.Text = "Schedule Appointment";
-            appointmentGroup.Size = new Size(800, 200);
-            appointmentGroup.Location = new Point(10, 10);
-            appointmentGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel appointmentGroup = CreateSectionCard("Schedule Appointment", new Size(800, 200), new Point(10, 10));
             appointmentGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
@@ -1269,10 +1311,7 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
             mainPanel.AutoScroll = true;
 
-            GroupBox prescriptionGroup = new GroupBox(); prescriptionGroup.Text = "Create Prescription";
-            prescriptionGroup.Size = new Size(800, 300);
-            prescriptionGroup.Location = new Point(10, 10);
-            prescriptionGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel prescriptionGroup = CreateSectionCard("Create Prescription", new Size(800, 300), new Point(10, 10));
             prescriptionGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
@@ -1367,10 +1406,7 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
             mainPanel.AutoScroll = true;
 
-            GroupBox billingGroup = new GroupBox(); billingGroup.Text = "Create Bill";
-            billingGroup.Size = new Size(800, 200);
-            billingGroup.Location = new Point(10, 10);
-            billingGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel billingGroup = CreateSectionCard("Create Bill", new Size(800, 200), new Point(10, 10));
             billingGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
@@ -1535,10 +1571,7 @@ namespace PatientManagementSystem
             summaryPanel.Controls.AddRange(new Control[] { patientsCard, appointmentsCard, billsCard, revenueCard });
 
             // Date Range Selection
-            GroupBox dateRangeGroup = new GroupBox(); dateRangeGroup.Text = "Sales Summary";
-            dateRangeGroup.Size = new Size(800, 80);
-            dateRangeGroup.Location = new Point(10, 120);
-            dateRangeGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel dateRangeGroup = CreateSectionCard("Sales Summary", new Size(800, 80), new Point(10, 120));
             dateRangeGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             Label lblFromDate = new Label() { Text = "From Date:", Location = new Point(20, 30), Size = new Size(80, 25) };
@@ -1615,7 +1648,7 @@ namespace PatientManagementSystem
         }
 
         // DATABASE OPERATIONS
-        private void SavePatient(GroupBox personalInfo, GroupBox medicalInfo, Button btnSavePatient)
+        private void SavePatient(Panel personalInfo, Panel medicalInfo, Button btnSavePatient)
         {
             try
             {
@@ -1715,7 +1748,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void LoadPatientIntoForm(int patientId, GroupBox personalInfo, GroupBox medicalInfo, Button btnSavePatient)
+        private void LoadPatientIntoForm(int patientId, Panel personalInfo, Panel medicalInfo, Button btnSavePatient)
         {
             try
             {
@@ -1878,7 +1911,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void ClearPatientForm(GroupBox personalInfo, GroupBox medicalInfo)
+        private void ClearPatientForm(Panel personalInfo, Panel medicalInfo)
         {
             foreach (Control control in personalInfo.Controls.Cast<Control>().Concat(medicalInfo.Controls.Cast<Control>()))
             {
@@ -1941,7 +1974,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void SaveAppointment(GroupBox appointmentGroup)
+        private void SaveAppointment(Panel appointmentGroup)
         {
             try
             {
@@ -2142,7 +2175,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void SavePrescription(GroupBox prescriptionGroup)
+        private void SavePrescription(Panel prescriptionGroup)
         {
             try
             {
@@ -2213,7 +2246,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void PrintPrescription(GroupBox prescriptionGroup, ComboBox cmbPatient)
+        private void PrintPrescription(Panel prescriptionGroup, ComboBox cmbPatient)
         {
             ComboBox cmbDoctor = prescriptionGroup.Controls["cmbDoctor"] as ComboBox;
             TextBox txtDiagnosis = prescriptionGroup.Controls["txtDiagnosis"] as TextBox;
@@ -2505,7 +2538,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void SaveBill(GroupBox billingGroup)
+        private void SaveBill(Panel billingGroup)
         {
             try
             {
