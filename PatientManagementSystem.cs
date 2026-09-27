@@ -1350,7 +1350,9 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 using (SQLiteDataReader reader = cmd.ExecuteReader())
                 {
-                    cmb.Items.Clear();
+                    // Items.Clear() throws once DataSource is set from a previous
+                    // call (e.g. on refresh after saving a patient); replacing
+                    // DataSource directly is the correct way to rebind.
                     cmb.DisplayMember = "DisplayName";
                     cmb.ValueMember = "PatientID";
 
