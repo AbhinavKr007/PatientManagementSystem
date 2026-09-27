@@ -585,6 +585,7 @@ namespace PatientManagementSystem
             headerPanel.Location = new Point(10, 10);
             headerPanel.Size = new Size(1140, 140);
             headerPanel.BackColor = Color.FromArgb(0, 123, 255);
+            headerPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             PictureBox picLogo = new PictureBox() {
                 Name = "picHomeLogo",
@@ -633,7 +634,8 @@ namespace PatientManagementSystem
                 Size = new Size(260, 60),
                 Font = new Font("Segoe UI", 12F, FontStyle.Bold),
                 ForeColor = Color.White,
-                TextAlign = ContentAlignment.MiddleRight
+                TextAlign = ContentAlignment.MiddleRight,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
 
             headerPanel.Controls.AddRange(new Control[] { picLogo, lblHospitalName, lblMotto, lblAddress, lblPhone, lblClock });
@@ -804,11 +806,13 @@ namespace PatientManagementSystem
             appointmentsGroup.Size = new Size(800, 250);
             appointmentsGroup.Location = new Point(10, 162);
             appointmentsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            appointmentsGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             DataGridView dgvDashAppointments = new DataGridView() {
                 Name = "dgvDashTodayAppointments",
                 Location = new Point(15, 30),
-                Size = new Size(770, 205)
+                Size = new Size(770, 205),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
             };
             dgvDashAppointments.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvDashAppointments.ReadOnly = true;
@@ -819,11 +823,13 @@ namespace PatientManagementSystem
             pendingBillsGroup.Size = new Size(800, 250);
             pendingBillsGroup.Location = new Point(10, 422);
             pendingBillsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            pendingBillsGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             DataGridView dgvDashPendingBills = new DataGridView() {
                 Name = "dgvDashPendingBills",
                 Location = new Point(15, 30),
-                Size = new Size(770, 205)
+                Size = new Size(770, 205),
+                Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom
             };
             dgvDashPendingBills.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvDashPendingBills.ReadOnly = true;
@@ -1015,6 +1021,7 @@ namespace PatientManagementSystem
             personalInfoGroup.Size = new Size(800, 250);
             personalInfoGroup.Location = new Point(10, 10);
             personalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            personalInfoGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // First Name
             Label lblFirstName = new Label() { Text = "First Name:", Location = new Point(20, 30), Size = new Size(100, 25) };
@@ -1061,6 +1068,7 @@ namespace PatientManagementSystem
             medicalInfoGroup.Size = new Size(800, 150);
             medicalInfoGroup.Location = new Point(10, 270);
             medicalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            medicalInfoGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Blood Group
             Label lblBloodGroup = new Label() { Text = "Blood Group:", Location = new Point(20, 30), Size = new Size(100, 25) };
@@ -1107,7 +1115,7 @@ namespace PatientManagementSystem
             TextBox txtSearchPatient = new TextBox() { Name = "txtSearchPatient", Location = new Point(75, 490), Size = new Size(300, 25) };
 
             // Patient List
-            DataGridView dgvPatients = new DataGridView() { Name = "dgvPatients", Location = new Point(10, 520), Size = new Size(800, 220) };
+            DataGridView dgvPatients = new DataGridView() { Name = "dgvPatients", Location = new Point(10, 520), Size = new Size(800, 220), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
             dgvPatients.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvPatients.ReadOnly = true;
             dgvPatients.AllowUserToAddRows = false;
@@ -1150,6 +1158,7 @@ namespace PatientManagementSystem
             appointmentGroup.Size = new Size(800, 200);
             appointmentGroup.Location = new Point(10, 10);
             appointmentGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            appointmentGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
             Label lblPatient = new Label() { Text = "Select Patient:", Location = new Point(20, 30), Size = new Size(100, 25) };
@@ -1205,7 +1214,7 @@ namespace PatientManagementSystem
             TextBox txtSearchAppointment = new TextBox() { Name = "txtSearchAppointment", Location = new Point(75, 270), Size = new Size(300, 25) };
 
             // Appointments List
-            DataGridView dgvAppointments = new DataGridView() { Name = "dgvAppointments", Location = new Point(10, 300), Size = new Size(800, 270) };
+            DataGridView dgvAppointments = new DataGridView() { Name = "dgvAppointments", Location = new Point(10, 300), Size = new Size(800, 270), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
             dgvAppointments.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvAppointments.ReadOnly = true;
             dgvAppointments.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
@@ -1255,6 +1264,7 @@ namespace PatientManagementSystem
             prescriptionGroup.Size = new Size(800, 300);
             prescriptionGroup.Location = new Point(10, 10);
             prescriptionGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            prescriptionGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
             Label lblPatient = new Label() { Text = "Select Patient:", Location = new Point(20, 30), Size = new Size(100, 25) };
@@ -1318,7 +1328,7 @@ namespace PatientManagementSystem
             TextBox txtSearchPrescription = new TextBox() { Name = "txtSearchPrescription", Location = new Point(75, 370), Size = new Size(300, 25) };
 
             // Prescriptions List
-            DataGridView dgvPrescriptions = new DataGridView() { Name = "dgvPrescriptions", Location = new Point(10, 400), Size = new Size(800, 220) };
+            DataGridView dgvPrescriptions = new DataGridView() { Name = "dgvPrescriptions", Location = new Point(10, 400), Size = new Size(800, 220), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
             dgvPrescriptions.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvPrescriptions.ReadOnly = true;
             dgvPrescriptions.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
@@ -1350,6 +1360,7 @@ namespace PatientManagementSystem
             billingGroup.Size = new Size(800, 200);
             billingGroup.Location = new Point(10, 10);
             billingGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            billingGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
             Label lblPatient = new Label() { Text = "Select Patient:", Location = new Point(20, 30), Size = new Size(100, 25) };
@@ -1448,7 +1459,7 @@ namespace PatientManagementSystem
             TextBox txtSearchBill = new TextBox() { Name = "txtSearchBill", Location = new Point(75, 270), Size = new Size(300, 25) };
 
             // Bills List
-            DataGridView dgvBills = new DataGridView() { Name = "dgvBills", Location = new Point(10, 300), Size = new Size(800, 270) };
+            DataGridView dgvBills = new DataGridView() { Name = "dgvBills", Location = new Point(10, 300), Size = new Size(800, 270), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
             dgvBills.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvBills.ReadOnly = true;
             dgvBills.AllowUserToAddRows = false;
@@ -1515,6 +1526,7 @@ namespace PatientManagementSystem
             dateRangeGroup.Size = new Size(800, 80);
             dateRangeGroup.Location = new Point(10, 120);
             dateRangeGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            dateRangeGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             Label lblFromDate = new Label() { Text = "From Date:", Location = new Point(20, 30), Size = new Size(80, 25) };
             DateTimePicker dtpFromDate = new DateTimePicker() { Name = "dtpFromDate", Location = new Point(100, 30), Size = new Size(150, 25) };
@@ -1532,7 +1544,7 @@ namespace PatientManagementSystem
             dateRangeGroup.Controls.AddRange(new Control[] { lblFromDate, dtpFromDate, lblToDate, dtpToDate, btnGenerateReport });
 
             // Reports DataGridView
-            DataGridView dgvReports = new DataGridView() { Name = "dgvReports", Location = new Point(10, 210), Size = new Size(800, 350) };
+            DataGridView dgvReports = new DataGridView() { Name = "dgvReports", Location = new Point(10, 210), Size = new Size(800, 350), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom };
             dgvReports.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvReports.ReadOnly = true;
 
