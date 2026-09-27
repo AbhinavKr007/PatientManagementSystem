@@ -57,16 +57,17 @@ namespace PatientManagementSystem.Tests
         [Fact]
         public void ValidateLogin_DefaultAdmin_SucceedsWithCorrectPassword()
         {
-            bool result = AuthHelper.ValidateLogin(connectionString, "admin", "admin123", out string error);
+            bool result = AuthHelper.ValidateLogin(connectionString, "admin", "admin123", out string error, out string role);
 
             Assert.True(result);
             Assert.Null(error);
+            Assert.Equal("Admin", role);
         }
 
         [Fact]
         public void ValidateLogin_DefaultAdmin_FailsWithWrongPassword()
         {
-            bool result = AuthHelper.ValidateLogin(connectionString, "admin", "wrong-password", out string error);
+            bool result = AuthHelper.ValidateLogin(connectionString, "admin", "wrong-password", out string error, out string role);
 
             Assert.False(result);
             Assert.NotNull(error);
@@ -75,7 +76,7 @@ namespace PatientManagementSystem.Tests
         [Fact]
         public void ValidateLogin_UnknownUser_Fails()
         {
-            bool result = AuthHelper.ValidateLogin(connectionString, "nobody", "whatever", out string error);
+            bool result = AuthHelper.ValidateLogin(connectionString, "nobody", "whatever", out string error, out string role);
 
             Assert.False(result);
         }
@@ -106,7 +107,7 @@ namespace PatientManagementSystem.Tests
                 }
             }
 
-            bool result = AuthHelper.ValidateLogin(connectionString, username, password, out string error);
+            bool result = AuthHelper.ValidateLogin(connectionString, username, password, out string error, out string role);
             Assert.True(result);
             Assert.Null(error);
 
@@ -132,7 +133,7 @@ namespace PatientManagementSystem.Tests
             }
 
             // The upgraded hash must still verify correctly on a second login.
-            bool secondLogin = AuthHelper.ValidateLogin(connectionString, username, password, out string secondError);
+            bool secondLogin = AuthHelper.ValidateLogin(connectionString, username, password, out string secondError, out string secondRole);
             Assert.True(secondLogin);
             Assert.Null(secondError);
         }
@@ -162,7 +163,7 @@ namespace PatientManagementSystem.Tests
                 }
             }
 
-            bool result = AuthHelper.ValidateLogin(connectionString, username, "WrongPassword", out string error);
+            bool result = AuthHelper.ValidateLogin(connectionString, username, "WrongPassword", out string error, out string role);
 
             Assert.False(result);
             Assert.NotNull(error);

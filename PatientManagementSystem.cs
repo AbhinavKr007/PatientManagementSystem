@@ -68,6 +68,7 @@ namespace PatientManagementSystem
                 AppointmentID INTEGER,
                 ServiceDescription TEXT NOT NULL,
                 Amount DECIMAL(10,2) NOT NULL,
+                AmountPaid DECIMAL(10,2) NOT NULL DEFAULT 0,
                 PaymentStatus TEXT DEFAULT 'Pending',
                 PaymentMethod TEXT,
                 BillDate DATE NOT NULL,
@@ -83,6 +84,7 @@ namespace PatientManagementSystem
                 PasswordHash TEXT NOT NULL,
                 Salt TEXT NOT NULL,
                 Iterations INTEGER NOT NULL DEFAULT 0,
+                Role TEXT NOT NULL DEFAULT 'User',
                 CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
 
@@ -125,8 +127,62 @@ namespace PatientManagementSystem
                     }
                 }
                 MigrateAddIterationsColumn(conn);
+                MigrateAddRoleColumn(conn);
+                MigrateAddAmountPaidColumn(conn);
                 EnsureDefaultAdmin(conn);
                 EnsureDefaultHospitalProfile(conn);
+            }
+        }
+
+        // Existing installs created their Users table before the Role column
+        // existed; CREATE TABLE IF NOT EXISTS won't retrofit it, so add it here.
+        private static void MigrateAddRoleColumn(SQLiteConnection conn)
+        {
+            try
+            {
+                using (SQLiteCommand alter = new SQLiteCommand(
+                    "ALTER TABLE Users ADD COLUMN Role TEXT NOT NULL DEFAULT 'User'", conn))
+                {
+                    alter.ExecuteNonQuery();
+                }
+            }
+            catch (SQLiteException)
+            {
+                // Column already exists.
+            }
+
+            // The very first account created (before roles existed) is always
+            // the original administrator; make sure it keeps admin rights.
+            using (SQLiteCommand promote = new SQLiteCommand(
+                "UPDATE Users SET Role = 'Admin' WHERE UserID = (SELECT MIN(UserID) FROM Users)", conn))
+            {
+                promote.ExecuteNonQuery();
+            }
+        }
+
+        // Existing installs created their Billing table before the AmountPaid
+        // column existed; CREATE TABLE IF NOT EXISTS won't retrofit it.
+        private static void MigrateAddAmountPaidColumn(SQLiteConnection conn)
+        {
+            try
+            {
+                using (SQLiteCommand alter = new SQLiteCommand(
+                    "ALTER TABLE Billing ADD COLUMN AmountPaid DECIMAL(10,2) NOT NULL DEFAULT 0", conn))
+                {
+                    alter.ExecuteNonQuery();
+                }
+            }
+            catch (SQLiteException)
+            {
+                // Column already exists.
+            }
+
+            // Backfill: bills already marked Paid before this column existed
+            // have no recorded AmountPaid yet -- it must equal the full amount.
+            using (SQLiteCommand backfill = new SQLiteCommand(
+                "UPDATE Billing SET AmountPaid = Amount WHERE PaymentStatus = 'Paid' AND AmountPaid = 0", conn))
+            {
+                backfill.ExecuteNonQuery();
             }
         }
 
@@ -168,7 +224,7 @@ namespace PatientManagementSystem
                     string hash = AuthHelper.HashPassword("admin123", salt, AuthHelper.DefaultIterations);
 
                     using (SQLiteCommand insert = new SQLiteCommand(
-                        "INSERT INTO Users (Username, PasswordHash, Salt, Iterations) VALUES (@u, @h, @s, @i)", conn))
+                        "INSERT INTO Users (Username, PasswordHash, Salt, Iterations, Role) VALUES (@u, @h, @s, @i, 'Admin')", conn))
                     {
                         insert.Parameters.AddWithValue("@u", "admin");
                         insert.Parameters.AddWithValue("@h", hash);
@@ -227,16 +283,17 @@ namespace PatientManagementSystem
                 CryptographicOperations.FixedTimeEquals(computedBytes, storedBytes);
         }
 
-        public static bool ValidateLogin(string connectionString, string username, string password, out string errorMessage)
+        public static bool ValidateLogin(string connectionString, string username, string password, out string errorMessage, out string role)
         {
             errorMessage = null;
+            role = null;
             try
             {
                 using (SQLiteConnection conn = new SQLiteConnection(connectionString))
                 {
                     conn.Open();
                     using (SQLiteCommand cmd = new SQLiteCommand(
-                        "SELECT PasswordHash, Salt, Iterations FROM Users WHERE Username = @u", conn))
+                        "SELECT PasswordHash, Salt, Iterations, Role FROM Users WHERE Username = @u", conn))
                     {
                         cmd.Parameters.AddWithValue("@u", username);
                         string storedHash, salt;
@@ -253,6 +310,7 @@ namespace PatientManagementSystem
                             storedHash = reader["PasswordHash"].ToString();
                             salt = reader["Salt"].ToString();
                             iterations = Convert.ToInt32(reader["Iterations"]);
+                            role = reader["Role"].ToString();
                         }
 
                         bool isValid;
@@ -271,6 +329,7 @@ namespace PatientManagementSystem
                         if (!isValid)
                         {
                             errorMessage = "Invalid username or password.";
+                            role = null;
                             return false;
                         }
 
@@ -311,6 +370,7 @@ namespace PatientManagementSystem
         private TextBox txtPassword;
 
         public string AuthenticatedUsername { get; private set; }
+        public string AuthenticatedRole { get; private set; }
 
         public LoginForm(string connectionString)
         {
@@ -322,6 +382,8 @@ namespace PatientManagementSystem
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
             this.MinimizeBox = false;
+            try { this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            catch { this.Icon = SystemIcons.Application; }
 
             Label lblUsername = new Label() { Text = "Username:", Location = new Point(20, 30), Size = new Size(90, 25) };
             txtUsername = new TextBox() { Location = new Point(120, 30), Size = new Size(190, 25), Text = "admin" };
@@ -355,9 +417,10 @@ namespace PatientManagementSystem
                 return;
             }
 
-            if (AuthHelper.ValidateLogin(connectionString, txtUsername.Text.Trim(), txtPassword.Text, out string error))
+            if (AuthHelper.ValidateLogin(connectionString, txtUsername.Text.Trim(), txtPassword.Text, out string error, out string role))
             {
                 AuthenticatedUsername = txtUsername.Text.Trim();
+                AuthenticatedRole = role;
                 this.DialogResult = DialogResult.OK;
                 this.Close();
             }
@@ -374,11 +437,17 @@ namespace PatientManagementSystem
         private string connectionString;
         private TabControl mainTabControl;
         private readonly string currentUsername;
+        private readonly string currentUserRole;
         private System.Windows.Forms.Timer homeClockTimer;
+        private bool isFullScreen = false;
+        private FormWindowState previousWindowState;
 
-        public MainForm(string username)
+        private bool IsAdmin => string.Equals(currentUserRole, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        public MainForm(string username, string role)
         {
             currentUsername = username;
+            currentUserRole = role;
             // Must run before InitializeComponent(): tab creation queries the
             // database immediately (e.g. the Dashboard's initial refresh), and
             // connection is null until this sets it up.
@@ -394,7 +463,17 @@ namespace PatientManagementSystem
             this.StartPosition = FormStartPosition.CenterScreen;
             this.WindowState = FormWindowState.Maximized;
             this.BackColor = Color.FromArgb(240, 248, 255);
-            this.Icon = SystemIcons.Application;
+            try { this.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            catch { this.Icon = SystemIcons.Application; }
+
+            this.KeyPreview = true;
+            this.KeyDown += (s, e) => {
+                if (e.KeyCode == Keys.F11)
+                {
+                    ToggleFullScreen();
+                    e.Handled = true;
+                }
+            };
 
             // Create main tab control
             mainTabControl = new TabControl();
@@ -431,18 +510,27 @@ namespace PatientManagementSystem
             ToolStripMenuItem fileMenu = new ToolStripMenuItem("File");
             fileMenu.DropDownItems.Add("Exit", null, (s, e) => Application.Exit());
 
+            // View Menu
+            ToolStripMenuItem viewMenu = new ToolStripMenuItem("View");
+            viewMenu.DropDownItems.Add("Toggle Full Screen\tF11", null, (s, e) => ToggleFullScreen());
+
             // Tools Menu
             ToolStripMenuItem toolsMenu = new ToolStripMenuItem("Tools");
-            toolsMenu.DropDownItems.Add("Backup Database", null, BackupDatabase);
             toolsMenu.DropDownItems.Add("View Audit Log", null, ShowAuditLog);
-            toolsMenu.DropDownItems.Add("Manage Doctors", null, ShowManageDoctors);
-            toolsMenu.DropDownItems.Add("Hospital Profile", null, ShowSettings);
+
+            if (IsAdmin)
+            {
+                toolsMenu.DropDownItems.Add("Manage Doctors", null, ShowManageDoctors);
+                toolsMenu.DropDownItems.Add("Manage Users", null, ShowManageUsers);
+                toolsMenu.DropDownItems.Add("Hospital Profile", null, ShowSettings);
+                toolsMenu.DropDownItems.Add("Backup Database", null, BackupDatabase);
+            }
 
             // Help Menu
             ToolStripMenuItem helpMenu = new ToolStripMenuItem("Help");
             helpMenu.DropDownItems.Add("About", null, ShowAbout);
 
-            menuStrip.Items.AddRange(new ToolStripItem[] { fileMenu, toolsMenu, helpMenu });
+            menuStrip.Items.AddRange(new ToolStripItem[] { fileMenu, viewMenu, toolsMenu, helpMenu });
             this.MainMenuStrip = menuStrip;
             this.Controls.Add(menuStrip);
         }
@@ -869,7 +957,7 @@ namespace PatientManagementSystem
             {
                 connection.Open();
                 string query = @"SELECT b.BillID, p.FirstName || ' ' || p.LastName as PatientName,
-                    b.ServiceDescription, b.Amount, b.DueDate
+                    b.ServiceDescription, b.Amount as TotalAmount, b.AmountPaid, (b.Amount - b.AmountPaid) as Balance, b.DueDate
                     FROM Billing b
                     JOIN Patients p ON b.PatientID = p.PatientID
                     WHERE b.PaymentStatus = 'Pending'
@@ -896,7 +984,7 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(Amount), 0) FROM Billing WHERE strftime('%Y-%m', BillDate) = strftime('%Y-%m', 'now') AND PaymentStatus = 'Paid'", connection))
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(AmountPaid), 0) FROM Billing WHERE strftime('%Y-%m', BillDate) = strftime('%Y-%m', 'now')", connection))
                 {
                     decimal revenue = Convert.ToDecimal(cmd.ExecuteScalar());
                     connection.Close();
@@ -940,6 +1028,8 @@ namespace PatientManagementSystem
             Label lblDOB = new Label() { Text = "Date of Birth:", Location = new Point(20, 70), Size = new Size(100, 25) };
             DateTimePicker dtpDOB = new DateTimePicker() { Name = "dtpDOB", Location = new Point(130, 70), Size = new Size(200, 25) };
             dtpDOB.MaxDate = DateTime.Today;
+            dtpDOB.Format = DateTimePickerFormat.Custom;
+            dtpDOB.CustomFormat = "ddd, MMM dd, yyyy";
 
             // Gender
             Label lblGender = new Label() { Text = "Gender:", Location = new Point(350, 70), Size = new Size(100, 25) };
@@ -1281,7 +1371,7 @@ namespace PatientManagementSystem
             // Payment Method
             Label lblPaymentMethod = new Label() { Text = "Payment Method:", Location = new Point(300, 70), Size = new Size(120, 25) };
             ComboBox cmbPaymentMethod = new ComboBox() { Name = "cmbPaymentMethod", Location = new Point(430, 70), Size = new Size(150, 25) };
-            cmbPaymentMethod.Items.AddRange(new string[] { "Cash", "Credit Card", "Debit Card", "Insurance", "Online Transfer" });
+            cmbPaymentMethod.Items.AddRange(new string[] { "Cash", "Credit Card", "Debit Card", "UPI", "Insurance", "Online Transfer" });
             cmbPaymentMethod.DropDownStyle = ComboBoxStyle.DropDownList;
 
             // Due Date
@@ -1296,10 +1386,39 @@ namespace PatientManagementSystem
             cmbStatus.DropDownStyle = ComboBoxStyle.DropDownList;
             cmbStatus.SelectedIndex = 0;
 
+            // Amount Paid (only editable when Status = Partial)
+            Label lblAmountPaid = new Label() { Text = "Amount Paid:", Location = new Point(300, 110), Size = new Size(100, 25) };
+            NumericUpDown numAmountPaid = new NumericUpDown() { Name = "numAmountPaid", Location = new Point(430, 110), Size = new Size(150, 25), Enabled = false };
+            numAmountPaid.DecimalPlaces = 2;
+            numAmountPaid.Maximum = 999999;
+            numAmountPaid.Minimum = 0;
+
+            cmbStatus.SelectedIndexChanged += (s, e) => {
+                if (cmbStatus.Text == "Paid")
+                {
+                    numAmountPaid.Value = numAmount.Value;
+                    numAmountPaid.Enabled = false;
+                }
+                else if (cmbStatus.Text == "Partial")
+                {
+                    numAmountPaid.Enabled = true;
+                }
+                else
+                {
+                    numAmountPaid.Value = 0;
+                    numAmountPaid.Enabled = false;
+                }
+            };
+            numAmount.ValueChanged += (s, e) => {
+                if (cmbStatus.Text == "Paid")
+                    numAmountPaid.Value = numAmount.Value;
+            };
+
             billingGroup.Controls.AddRange(new Control[] {
                 lblPatient, cmbPatient, lblService, txtService,
                 lblAmount, numAmount, lblPaymentMethod, cmbPaymentMethod,
-                lblDueDate, dtpDueDate, lblStatus, cmbStatus
+                lblDueDate, dtpDueDate, lblStatus, cmbStatus,
+                lblAmountPaid, numAmountPaid
             });
 
             // Buttons
@@ -1319,6 +1438,11 @@ namespace PatientManagementSystem
             btnDeleteBill.ForeColor = Color.White;
             btnDeleteBill.FlatStyle = FlatStyle.Flat;
 
+            Button btnPrintInvoice = new Button() { Text = "Print Invoice", Location = new Point(330, 220), Size = new Size(110, 35) };
+            btnPrintInvoice.BackColor = Color.FromArgb(108, 117, 125);
+            btnPrintInvoice.ForeColor = Color.White;
+            btnPrintInvoice.FlatStyle = FlatStyle.Flat;
+
             // Search
             Label lblSearchBill = new Label() { Text = "Search:", Location = new Point(10, 270), Size = new Size(60, 25) };
             TextBox txtSearchBill = new TextBox() { Name = "txtSearchBill", Location = new Point(75, 270), Size = new Size(300, 25) };
@@ -1327,6 +1451,7 @@ namespace PatientManagementSystem
             DataGridView dgvBills = new DataGridView() { Name = "dgvBills", Location = new Point(10, 300), Size = new Size(800, 270) };
             dgvBills.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvBills.ReadOnly = true;
+            dgvBills.AllowUserToAddRows = false;
             dgvBills.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             LoadBills(dgvBills);
 
@@ -1342,9 +1467,10 @@ namespace PatientManagementSystem
             };
 
             btnDeleteBill.Click += (s, e) => DeleteBill(dgvBills);
+            btnPrintInvoice.Click += (s, e) => PrintInvoice(dgvBills);
 
             mainPanel.Controls.AddRange(new Control[] {
-                billingGroup, btnSaveBill, btnMarkPaid, btnDeleteBill,
+                billingGroup, btnSaveBill, btnMarkPaid, btnDeleteBill, btnPrintInvoice,
                 lblSearchBill, txtSearchBill, dgvBills
             });
             billingTab.Controls.Add(mainPanel);
@@ -2102,7 +2228,9 @@ namespace PatientManagementSystem
                 Font printFont = new Font("Segoe UI", 11F);
                 printDoc.PrintPage += (s, e) =>
                 {
-                    e.Graphics.DrawString(content, printFont, Brushes.Black, e.MarginBounds);
+                    int contentTop = DrawPrintHeader(e.Graphics, e.MarginBounds);
+                    Rectangle contentBounds = new Rectangle(e.MarginBounds.Left, contentTop, e.MarginBounds.Width, e.MarginBounds.Bottom - contentTop);
+                    e.Graphics.DrawString(content, printFont, Brushes.Black, contentBounds);
                 };
 
                 using (PrintPreviewDialog previewDialog = new PrintPreviewDialog())
@@ -2116,6 +2244,132 @@ namespace PatientManagementSystem
             catch (Exception ex)
             {
                 MessageBox.Show($"Error printing prescription: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // Draws the hospital logo, name, and contact details at the top of a
+        // printed page, returning the Y position where the body content
+        // should start. Shared by prescription and invoice printing.
+        private int DrawPrintHeader(Graphics g, Rectangle bounds)
+        {
+            string name = "Patient Management System", address = "", phone = "";
+            byte[] logoBytes = null;
+
+            try
+            {
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand(
+                    "SELECT HospitalName, Address, Phone, Logo FROM HospitalProfile WHERE ProfileID = 1", connection))
+                using (SQLiteDataReader reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        name = reader["HospitalName"].ToString();
+                        address = reader["Address"] == DBNull.Value ? "" : reader["Address"].ToString();
+                        phone = reader["Phone"] == DBNull.Value ? "" : reader["Phone"].ToString();
+                        if (reader["Logo"] != DBNull.Value) logoBytes = (byte[])reader["Logo"];
+                    }
+                }
+                connection.Close();
+            }
+            catch
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+            }
+
+            const int logoSize = 70;
+            int y = bounds.Top;
+
+            if (logoBytes != null)
+            {
+                using (MemoryStream ms = new MemoryStream(logoBytes))
+                using (Image logoImage = Image.FromStream(ms))
+                {
+                    g.DrawImage(logoImage, bounds.Left, y, logoSize, logoSize);
+                }
+            }
+
+            int textX = bounds.Left + logoSize + 15;
+            using (Font nameFont = new Font("Segoe UI", 16F, FontStyle.Bold))
+            {
+                g.DrawString(name, nameFont, Brushes.Black, textX, y);
+            }
+
+            string details = string.Join("   |   ", new[] { address, phone }.Where(s => !string.IsNullOrWhiteSpace(s)));
+            if (!string.IsNullOrWhiteSpace(details))
+            {
+                using (Font detailFont = new Font("Segoe UI", 9F))
+                {
+                    g.DrawString(details, detailFont, Brushes.Black, textX, y + 30);
+                }
+            }
+
+            int headerBottom = y + logoSize + 10;
+            g.DrawLine(Pens.Black, bounds.Left, headerBottom, bounds.Right, headerBottom);
+            return headerBottom + 15;
+        }
+
+        private void PrintInvoice(DataGridView dgvBills)
+        {
+            if (dgvBills.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("Select a bill from the list first.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            DataGridViewRow row = dgvBills.SelectedRows[0];
+            string patientName = row.Cells["PatientName"].Value?.ToString();
+            string service = row.Cells["ServiceDescription"].Value?.ToString();
+            decimal totalAmount = Convert.ToDecimal(row.Cells["TotalAmount"].Value);
+            decimal amountPaid = Convert.ToDecimal(row.Cells["AmountPaid"].Value);
+            decimal balance = Convert.ToDecimal(row.Cells["Balance"].Value);
+            string status = row.Cells["PaymentStatus"].Value?.ToString();
+            string method = row.Cells["PaymentMethod"].Value?.ToString();
+            DateTime billDate = Convert.ToDateTime(row.Cells["BillDate"].Value);
+            object dueDateValue = row.Cells["DueDate"].Value;
+
+            StringBuilder sb = new StringBuilder();
+            sb.AppendLine("INVOICE");
+            sb.AppendLine($"Bill Date: {billDate:d}");
+            if (dueDateValue != null && dueDateValue != DBNull.Value)
+                sb.AppendLine($"Due Date: {Convert.ToDateTime(dueDateValue):d}");
+            sb.AppendLine();
+            sb.AppendLine($"Patient: {patientName}");
+            sb.AppendLine($"Service: {service}");
+            sb.AppendLine();
+            sb.AppendLine($"Total Amount: {totalAmount:C2}");
+            sb.AppendLine($"Amount Paid: {amountPaid:C2}");
+            sb.AppendLine($"Balance Due: {balance:C2}");
+            sb.AppendLine();
+            sb.AppendLine($"Payment Status: {status}");
+            if (!string.IsNullOrWhiteSpace(method))
+                sb.AppendLine($"Payment Method: {method}");
+
+            string content = sb.ToString();
+
+            try
+            {
+                PrintDocument printDoc = new PrintDocument();
+                Font printFont = new Font("Segoe UI", 11F);
+                printDoc.PrintPage += (s, e) =>
+                {
+                    int contentTop = DrawPrintHeader(e.Graphics, e.MarginBounds);
+                    Rectangle contentBounds = new Rectangle(e.MarginBounds.Left, contentTop, e.MarginBounds.Width, e.MarginBounds.Bottom - contentTop);
+                    e.Graphics.DrawString(content, printFont, Brushes.Black, contentBounds);
+                };
+
+                using (PrintPreviewDialog previewDialog = new PrintPreviewDialog())
+                {
+                    previewDialog.Document = printDoc;
+                    previewDialog.Width = 800;
+                    previewDialog.Height = 900;
+                    previewDialog.ShowDialog();
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error printing invoice: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -2197,8 +2451,9 @@ namespace PatientManagementSystem
                 ComboBox cmbPaymentMethod = billingGroup.Controls["cmbPaymentMethod"] as ComboBox;
                 DateTimePicker dtpDueDate = billingGroup.Controls["dtpDueDate"] as DateTimePicker;
                 ComboBox cmbStatus = billingGroup.Controls["cmbStatus"] as ComboBox;
+                NumericUpDown numAmountPaid = billingGroup.Controls["numAmountPaid"] as NumericUpDown;
 
-                if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtService.Text) || numAmount.Value <= 0)
+                if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtService.Text) || numAmount.Value <= 0 || cmbStatus.SelectedIndex == -1)
                 {
                     MessageBox.Show("Please fill in all required fields.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
@@ -2210,16 +2465,32 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                decimal amountPaid;
+                if (cmbStatus.Text == "Paid")
+                    amountPaid = numAmount.Value;
+                else if (cmbStatus.Text == "Partial")
+                {
+                    if (numAmountPaid.Value <= 0 || numAmountPaid.Value >= numAmount.Value)
+                    {
+                        MessageBox.Show("Amount paid must be greater than 0 and less than the total amount for a partial payment.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    amountPaid = numAmountPaid.Value;
+                }
+                else
+                    amountPaid = 0;
+
                 connection.Open();
                 string query = @"INSERT INTO Billing
-                    (PatientID, ServiceDescription, Amount, PaymentStatus, PaymentMethod, BillDate, DueDate)
-                    VALUES (@patientid, @service, @amount, @status, @method, @billdate, @duedate)";
+                    (PatientID, ServiceDescription, Amount, AmountPaid, PaymentStatus, PaymentMethod, BillDate, DueDate)
+                    VALUES (@patientid, @service, @amount, @amountpaid, @status, @method, @billdate, @duedate)";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@patientid", ((DataRowView)cmbPatient.SelectedItem)["PatientID"]);
                     cmd.Parameters.AddWithValue("@service", txtService.Text.Trim());
                     cmd.Parameters.AddWithValue("@amount", numAmount.Value);
+                    cmd.Parameters.AddWithValue("@amountpaid", amountPaid);
                     cmd.Parameters.AddWithValue("@status", cmbStatus.Text);
                     cmd.Parameters.AddWithValue("@method", cmbPaymentMethod.Text);
                     cmd.Parameters.AddWithValue("@billdate", DateTime.Today);
@@ -2263,7 +2534,8 @@ namespace PatientManagementSystem
             {
                 connection.Open();
                 string query = @"SELECT b.BillID, p.FirstName || ' ' || p.LastName as PatientName,
-                    b.ServiceDescription, b.Amount, b.PaymentStatus, b.PaymentMethod, b.BillDate, b.DueDate
+                    b.ServiceDescription, b.Amount as TotalAmount, b.AmountPaid, (b.Amount - b.AmountPaid) as Balance,
+                    b.PaymentStatus, b.PaymentMethod, b.BillDate, b.DueDate
                     FROM Billing b
                     JOIN Patients p ON b.PatientID = p.PatientID";
 
@@ -2296,7 +2568,9 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                string query = "UPDATE Billing SET PaymentStatus = @status WHERE BillID = @id";
+                string query = status == "Paid"
+                    ? "UPDATE Billing SET PaymentStatus = @status, AmountPaid = Amount WHERE BillID = @id"
+                    : "UPDATE Billing SET PaymentStatus = @status WHERE BillID = @id";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
@@ -2418,7 +2692,7 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(Amount), 0) FROM Billing WHERE DATE(BillDate) = DATE('now') AND PaymentStatus = 'Paid'", connection))
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(AmountPaid), 0) FROM Billing WHERE DATE(BillDate) = DATE('now')", connection))
                 {
                     decimal revenue = Convert.ToDecimal(cmd.ExecuteScalar());
                     connection.Close();
@@ -2441,8 +2715,8 @@ namespace PatientManagementSystem
                 string query = @"SELECT
                     DATE(b.BillDate) as Date,
                     COUNT(*) as TotalBills,
-                    SUM(CASE WHEN b.PaymentStatus = 'Paid' THEN b.Amount ELSE 0 END) as PaidAmount,
-                    SUM(CASE WHEN b.PaymentStatus = 'Pending' THEN b.Amount ELSE 0 END) as PendingAmount,
+                    SUM(b.AmountPaid) as PaidAmount,
+                    SUM(b.Amount - b.AmountPaid) as PendingAmount,
                     SUM(b.Amount) as TotalAmount
                     FROM Billing b
                     WHERE DATE(b.BillDate) BETWEEN @fromdate AND @todate
@@ -2709,6 +2983,300 @@ namespace PatientManagementSystem
                         connection.Close();
                     MessageBox.Show($"Error updating hospital profile: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
+            }
+        }
+
+        private void ToggleFullScreen()
+        {
+            if (!isFullScreen)
+            {
+                previousWindowState = this.WindowState;
+                this.WindowState = FormWindowState.Normal;
+                this.FormBorderStyle = FormBorderStyle.None;
+                this.WindowState = FormWindowState.Maximized;
+                isFullScreen = true;
+            }
+            else
+            {
+                this.FormBorderStyle = FormBorderStyle.Sizable;
+                this.WindowState = previousWindowState;
+                isFullScreen = false;
+            }
+        }
+
+        private void ShowManageUsers(object sender, EventArgs e)
+        {
+            using (Form usersForm = new Form())
+            {
+                usersForm.Text = "Manage Users";
+                usersForm.Size = new Size(600, 480);
+                usersForm.StartPosition = FormStartPosition.CenterParent;
+
+                Label lblUsername = new Label() { Text = "Username:", Location = new Point(15, 15), Size = new Size(100, 25) };
+                TextBox txtUsername = new TextBox() { Location = new Point(120, 15), Size = new Size(180, 25) };
+
+                Label lblPassword = new Label() { Text = "Password:", Location = new Point(15, 50), Size = new Size(100, 25) };
+                TextBox txtPassword = new TextBox() { Location = new Point(120, 50), Size = new Size(180, 25), UseSystemPasswordChar = true };
+
+                Label lblRole = new Label() { Text = "Role:", Location = new Point(15, 85), Size = new Size(100, 25) };
+                ComboBox cmbRole = new ComboBox() { Location = new Point(120, 85), Size = new Size(180, 25) };
+                cmbRole.Items.AddRange(new string[] { "User", "Admin" });
+                cmbRole.DropDownStyle = ComboBoxStyle.DropDownList;
+                cmbRole.SelectedIndex = 0;
+
+                Button btnAdd = new Button() { Text = "Add User", Location = new Point(320, 15), Size = new Size(120, 30) };
+                btnAdd.BackColor = Color.FromArgb(40, 167, 69);
+                btnAdd.ForeColor = Color.White;
+                btnAdd.FlatStyle = FlatStyle.Flat;
+
+                Button btnResetPassword = new Button() { Text = "Reset Password", Location = new Point(320, 50), Size = new Size(120, 30) };
+                btnResetPassword.BackColor = Color.FromArgb(0, 123, 255);
+                btnResetPassword.ForeColor = Color.White;
+                btnResetPassword.FlatStyle = FlatStyle.Flat;
+
+                Button btnSetRole = new Button() { Text = "Set Role", Location = new Point(320, 85), Size = new Size(120, 30) };
+                btnSetRole.BackColor = Color.FromArgb(108, 117, 125);
+                btnSetRole.ForeColor = Color.White;
+                btnSetRole.FlatStyle = FlatStyle.Flat;
+
+                Button btnDelete = new Button() { Text = "Delete Selected", Location = new Point(15, 125), Size = new Size(140, 30) };
+                btnDelete.BackColor = Color.FromArgb(220, 53, 69);
+                btnDelete.ForeColor = Color.White;
+                btnDelete.FlatStyle = FlatStyle.Flat;
+
+                DataGridView dgvUsers = new DataGridView() {
+                    Location = new Point(15, 165),
+                    Size = new Size(555, 260),
+                    ReadOnly = true,
+                    SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                    AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                    AllowUserToAddRows = false
+                };
+
+                void LoadUsersGrid()
+                {
+                    try
+                    {
+                        connection.Open();
+                        using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(
+                            "SELECT UserID, Username, Role, CreatedDate FROM Users ORDER BY Username", connection))
+                        {
+                            DataTable dt = new DataTable();
+                            adapter.Fill(dt);
+                            dgvUsers.DataSource = dt;
+                        }
+                        connection.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error loading users: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+
+                string SelectedUsername()
+                {
+                    if (dgvUsers.SelectedRows.Count == 0)
+                        return null;
+                    return dgvUsers.SelectedRows[0].Cells["Username"].Value?.ToString();
+                }
+
+                btnAdd.Click += (s, e2) =>
+                {
+                    if (string.IsNullOrWhiteSpace(txtUsername.Text) || string.IsNullOrWhiteSpace(txtPassword.Text))
+                    {
+                        MessageBox.Show("Username and password are required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    if (txtPassword.Text.Length < 8)
+                    {
+                        MessageBox.Show("Password must be at least 8 characters.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    try
+                    {
+                        string salt = Guid.NewGuid().ToString("N");
+                        string hash = AuthHelper.HashPassword(txtPassword.Text, salt, AuthHelper.DefaultIterations);
+
+                        connection.Open();
+                        using (SQLiteCommand cmd = new SQLiteCommand(
+                            "INSERT INTO Users (Username, PasswordHash, Salt, Iterations, Role) VALUES (@u, @h, @s, @i, @r)", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@u", txtUsername.Text.Trim());
+                            cmd.Parameters.AddWithValue("@h", hash);
+                            cmd.Parameters.AddWithValue("@s", salt);
+                            cmd.Parameters.AddWithValue("@i", AuthHelper.DefaultIterations);
+                            cmd.Parameters.AddWithValue("@r", cmbRole.Text);
+                            cmd.ExecuteNonQuery();
+                        }
+                        connection.Close();
+
+                        LogAudit("Add User", $"{txtUsername.Text.Trim()} ({cmbRole.Text})");
+                        txtUsername.Clear();
+                        txtPassword.Clear();
+                        LoadUsersGrid();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error adding user: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+
+                btnResetPassword.Click += (s, e2) =>
+                {
+                    string username = SelectedUsername();
+                    if (username == null)
+                    {
+                        MessageBox.Show("Select a user from the list first.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    if (string.IsNullOrWhiteSpace(txtPassword.Text) || txtPassword.Text.Length < 8)
+                    {
+                        MessageBox.Show("Enter a new password (at least 8 characters) in the Password field first.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    try
+                    {
+                        string salt = Guid.NewGuid().ToString("N");
+                        string hash = AuthHelper.HashPassword(txtPassword.Text, salt, AuthHelper.DefaultIterations);
+
+                        connection.Open();
+                        using (SQLiteCommand cmd = new SQLiteCommand(
+                            "UPDATE Users SET PasswordHash=@h, Salt=@s, Iterations=@i WHERE Username=@u", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@h", hash);
+                            cmd.Parameters.AddWithValue("@s", salt);
+                            cmd.Parameters.AddWithValue("@i", AuthHelper.DefaultIterations);
+                            cmd.Parameters.AddWithValue("@u", username);
+                            cmd.ExecuteNonQuery();
+                        }
+                        connection.Close();
+
+                        LogAudit("Reset Password", username);
+                        txtPassword.Clear();
+                        MessageBox.Show($"Password reset for {username}.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error resetting password: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+
+                btnSetRole.Click += (s, e2) =>
+                {
+                    string username = SelectedUsername();
+                    if (username == null)
+                    {
+                        MessageBox.Show("Select a user from the list first.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    try
+                    {
+                        connection.Open();
+                        if (cmbRole.Text != "Admin")
+                        {
+                            using (SQLiteCommand check = new SQLiteCommand(
+                                "SELECT COUNT(*) FROM Users WHERE Role = 'Admin' AND Username != @u", connection))
+                            {
+                                check.Parameters.AddWithValue("@u", username);
+                                long remainingAdmins = Convert.ToInt64(check.ExecuteScalar());
+                                if (remainingAdmins == 0)
+                                {
+                                    connection.Close();
+                                    MessageBox.Show("At least one Admin account must remain.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                    return;
+                                }
+                            }
+                        }
+
+                        using (SQLiteCommand cmd = new SQLiteCommand("UPDATE Users SET Role=@r WHERE Username=@u", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@r", cmbRole.Text);
+                            cmd.Parameters.AddWithValue("@u", username);
+                            cmd.ExecuteNonQuery();
+                        }
+                        connection.Close();
+
+                        LogAudit("Change User Role", $"{username} -> {cmbRole.Text}");
+                        LoadUsersGrid();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error changing role: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+
+                btnDelete.Click += (s, e2) =>
+                {
+                    string username = SelectedUsername();
+                    if (username == null) return;
+
+                    if (string.Equals(username, currentUsername, StringComparison.OrdinalIgnoreCase))
+                    {
+                        MessageBox.Show("You cannot delete the account you're currently logged in as.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    if (MessageBox.Show($"Delete user '{username}'?", "Confirm Delete", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        return;
+
+                    try
+                    {
+                        connection.Open();
+                        using (SQLiteCommand check = new SQLiteCommand(
+                            "SELECT COUNT(*) FROM Users WHERE Role = 'Admin' AND Username != @u", connection))
+                        {
+                            check.Parameters.AddWithValue("@u", username);
+                            long remainingAdmins = Convert.ToInt64(check.ExecuteScalar());
+
+                            using (SQLiteCommand roleCheck = new SQLiteCommand("SELECT Role FROM Users WHERE Username = @u", connection))
+                            {
+                                roleCheck.Parameters.AddWithValue("@u", username);
+                                string targetRole = roleCheck.ExecuteScalar()?.ToString();
+                                if (targetRole == "Admin" && remainingAdmins == 0)
+                                {
+                                    connection.Close();
+                                    MessageBox.Show("At least one Admin account must remain.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                                    return;
+                                }
+                            }
+                        }
+
+                        using (SQLiteCommand cmd = new SQLiteCommand("DELETE FROM Users WHERE Username=@u", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@u", username);
+                            cmd.ExecuteNonQuery();
+                        }
+                        connection.Close();
+
+                        LogAudit("Delete User", username);
+                        LoadUsersGrid();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error deleting user: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+
+                usersForm.Controls.AddRange(new Control[] {
+                    lblUsername, txtUsername, lblPassword, txtPassword, lblRole, cmbRole,
+                    btnAdd, btnResetPassword, btnSetRole, btnDelete, dgvUsers
+                });
+
+                LoadUsersGrid();
+                usersForm.ShowDialog(this);
             }
         }
 
@@ -2987,15 +3555,17 @@ Developed by Abhinav Kumar
             }
 
             string authenticatedUsername;
+            string authenticatedRole;
             using (LoginForm loginForm = new LoginForm(connectionString))
             {
                 if (loginForm.ShowDialog() != DialogResult.OK)
                     return;
 
                 authenticatedUsername = loginForm.AuthenticatedUsername;
+                authenticatedRole = loginForm.AuthenticatedRole;
             }
 
-            Application.Run(new MainForm(authenticatedUsername));
+            Application.Run(new MainForm(authenticatedUsername, authenticatedRole));
         }
     }
 }
