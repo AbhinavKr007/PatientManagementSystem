@@ -479,8 +479,26 @@ namespace PatientManagementSystem
             mainTabControl = new TabControl();
             mainTabControl.Dock = DockStyle.Fill;
             mainTabControl.Font = new Font("Segoe UI", 10F);
-            mainTabControl.ItemSize = new Size(150, 30);
+            mainTabControl.ItemSize = new Size(150, 34);
             mainTabControl.SizeMode = TabSizeMode.Fixed;
+
+            // Flat, modern tab strip: solid accent color on the selected tab
+            // instead of the classic beveled Windows tab look. Purely visual --
+            // doesn't touch any tab's own content.
+            mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+            mainTabControl.DrawItem += (s, e) => {
+                TabPage page = mainTabControl.TabPages[e.Index];
+                bool selected = e.Index == mainTabControl.SelectedIndex;
+
+                using (SolidBrush backBrush = new SolidBrush(selected ? Color.FromArgb(0, 123, 255) : Color.White))
+                {
+                    e.Graphics.FillRectangle(backBrush, e.Bounds);
+                }
+
+                TextRenderer.DrawText(e.Graphics, page.Text, mainTabControl.Font, e.Bounds,
+                    selected ? Color.White : Color.FromArgb(73, 80, 87),
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            };
 
             // Create tabs
             CreateHomeTab();
@@ -524,6 +542,7 @@ namespace PatientManagementSystem
                 toolsMenu.DropDownItems.Add("Manage Users", null, ShowManageUsers);
                 toolsMenu.DropDownItems.Add("Hospital Profile", null, ShowSettings);
                 toolsMenu.DropDownItems.Add("Backup Database", null, BackupDatabase);
+                toolsMenu.DropDownItems.Add("Import Database...", null, ImportDatabase);
             }
 
             // Help Menu
@@ -634,8 +653,7 @@ namespace PatientManagementSystem
                 Size = new Size(260, 60),
                 Font = new Font("Segoe UI", 12F, FontStyle.Bold),
                 ForeColor = Color.White,
-                TextAlign = ContentAlignment.MiddleRight,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+                TextAlign = ContentAlignment.MiddleRight
             };
 
             headerPanel.Controls.AddRange(new Control[] { picLogo, lblHospitalName, lblMotto, lblAddress, lblPhone, lblClock });
@@ -802,10 +820,7 @@ namespace PatientManagementSystem
             summaryPanel.Controls.AddRange(new Control[] { appointmentsCard, pendingBillsCard, revenueCard, btnRefreshDashboard });
 
             // Today's Appointments
-            GroupBox appointmentsGroup = new GroupBox(); appointmentsGroup.Text = "Today's Appointments";
-            appointmentsGroup.Size = new Size(800, 250);
-            appointmentsGroup.Location = new Point(10, 162);
-            appointmentsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel appointmentsGroup = CreateSectionCard("Today's Appointments", new Size(800, 250), new Point(10, 162));
             appointmentsGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             DataGridView dgvDashAppointments = new DataGridView() {
@@ -819,10 +834,7 @@ namespace PatientManagementSystem
             appointmentsGroup.Controls.Add(dgvDashAppointments);
 
             // Pending Bills
-            GroupBox pendingBillsGroup = new GroupBox(); pendingBillsGroup.Text = "Pending Bills";
-            pendingBillsGroup.Size = new Size(800, 250);
-            pendingBillsGroup.Location = new Point(10, 422);
-            pendingBillsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel pendingBillsGroup = CreateSectionCard("Pending Bills", new Size(800, 250), new Point(10, 422));
             pendingBillsGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             DataGridView dgvDashPendingBills = new DataGridView() {
@@ -868,6 +880,45 @@ namespace PatientManagementSystem
             return (card, lblValue);
         }
 
+        // Flat "card" panel used in place of the native GroupBox for every
+        // form section: a colored accent strip + bold title instead of a
+        // GroupBox's boxed caption/border, with a thin light border drawn by
+        // hand for a flatter, more modern look. Existing child controls were
+        // already positioned assuming ~28px of header space (a GroupBox's
+        // border + caption), so this occupies the same space and nothing
+        // else needs to move.
+        private Panel CreateSectionCard(string title, Size size, Point location)
+        {
+            Panel card = new Panel();
+            card.Size = size;
+            card.Location = location;
+            card.BackColor = Color.White;
+
+            Panel accent = new Panel();
+            accent.Dock = DockStyle.Top;
+            accent.Height = 3;
+            accent.BackColor = Color.FromArgb(0, 123, 255);
+
+            Label lblTitle = new Label() {
+                Text = title,
+                Font = new Font("Segoe UI", 10.5F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(33, 37, 41),
+                Location = new Point(15, 8),
+                AutoSize = true
+            };
+
+            card.Paint += (s, e) => {
+                using (Pen borderPen = new Pen(Color.FromArgb(222, 226, 230)))
+                {
+                    e.Graphics.DrawRectangle(borderPen, 0, 0, card.Width - 1, card.Height - 1);
+                }
+            };
+
+            card.Controls.Add(lblTitle);
+            card.Controls.Add(accent);
+            return card;
+        }
+
         private void RefreshDashboard()
         {
             Label lblAppointments = FindControlsRecursive(mainTabControl, c => c.Name == "lblDashTodayAppointments").FirstOrDefault() as Label;
@@ -909,13 +960,18 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
+                // Compare against C#-computed local timestamps rather than SQLite's
+                // 'now' (which is always UTC) so this doesn't drift a day off from
+                // BillDate/AppointmentDate, which are stored using local DateTime.
                 string query = @"SELECT COUNT(*) FROM Appointments
                     WHERE Status = 'Scheduled'
-                    AND datetime(DATE(AppointmentDate) || ' ' || AppointmentTime) BETWEEN datetime('now') AND datetime('now', @offset)";
+                    AND datetime(DATE(AppointmentDate) || ' ' || AppointmentTime) BETWEEN datetime(@nowlocal) AND datetime(@untillocal)";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
-                    cmd.Parameters.AddWithValue("@offset", $"+{hours} hours");
+                    DateTime now = DateTime.Now;
+                    cmd.Parameters.AddWithValue("@nowlocal", now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    cmd.Parameters.AddWithValue("@untillocal", now.AddHours(hours).ToString("yyyy-MM-dd HH:mm:ss"));
                     int count = Convert.ToInt32(cmd.ExecuteScalar());
                     connection.Close();
                     return count;
@@ -938,11 +994,12 @@ namespace PatientManagementSystem
                     a.DoctorName, a.AppointmentTime, a.Department, a.Status
                     FROM Appointments a
                     JOIN Patients p ON a.PatientID = p.PatientID
-                    WHERE DATE(a.AppointmentDate) = DATE('now')
+                    WHERE DATE(a.AppointmentDate) = @today
                     ORDER BY a.AppointmentTime";
 
                 using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
                 {
+                    adapter.SelectCommand.Parameters.AddWithValue("@today", DateTime.Today.ToString("yyyy-MM-dd"));
                     DataTable dt = new DataTable();
                     adapter.Fill(dt);
                     dgv.DataSource = dt;
@@ -990,8 +1047,9 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(AmountPaid), 0) FROM Billing WHERE strftime('%Y-%m', BillDate) = strftime('%Y-%m', 'now')", connection))
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(AmountPaid), 0) FROM Billing WHERE strftime('%Y-%m', BillDate) = @yearmonth", connection))
                 {
+                    cmd.Parameters.AddWithValue("@yearmonth", DateTime.Today.ToString("yyyy-MM"));
                     decimal revenue = Convert.ToDecimal(cmd.ExecuteScalar());
                     connection.Close();
                     return revenue;
@@ -1017,10 +1075,7 @@ namespace PatientManagementSystem
             mainPanel.AutoScroll = true;
 
             // Create form controls
-            GroupBox personalInfoGroup = new GroupBox(); personalInfoGroup.Text = "Personal Information";
-            personalInfoGroup.Size = new Size(800, 250);
-            personalInfoGroup.Location = new Point(10, 10);
-            personalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel personalInfoGroup = CreateSectionCard("Personal Information", new Size(800, 250), new Point(10, 10));
             personalInfoGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // First Name
@@ -1064,10 +1119,7 @@ namespace PatientManagementSystem
             });
 
             // Medical Information Group
-            GroupBox medicalInfoGroup = new GroupBox(); medicalInfoGroup.Text = "Medical Information";
-            medicalInfoGroup.Size = new Size(800, 150);
-            medicalInfoGroup.Location = new Point(10, 270);
-            medicalInfoGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel medicalInfoGroup = CreateSectionCard("Medical Information", new Size(800, 150), new Point(10, 270));
             medicalInfoGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Blood Group
@@ -1154,10 +1206,7 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
             mainPanel.AutoScroll = true;
 
-            GroupBox appointmentGroup = new GroupBox(); appointmentGroup.Text = "Schedule Appointment";
-            appointmentGroup.Size = new Size(800, 200);
-            appointmentGroup.Location = new Point(10, 10);
-            appointmentGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel appointmentGroup = CreateSectionCard("Schedule Appointment", new Size(800, 200), new Point(10, 10));
             appointmentGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
@@ -1185,6 +1234,8 @@ namespace PatientManagementSystem
             Label lblAppDate = new Label() { Text = "Date:", Location = new Point(350, 70), Size = new Size(100, 25) };
             DateTimePicker dtpAppDate = new DateTimePicker() { Name = "dtpAppDate", Location = new Point(460, 70), Size = new Size(150, 25) };
             dtpAppDate.MinDate = DateTime.Today;
+            dtpAppDate.Format = DateTimePickerFormat.Custom;
+            dtpAppDate.CustomFormat = "ddd, MMM dd, yyyy";
 
             // Appointment Time
             Label lblAppTime = new Label() { Text = "Time:", Location = new Point(630, 70), Size = new Size(50, 25) };
@@ -1260,10 +1311,7 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
             mainPanel.AutoScroll = true;
 
-            GroupBox prescriptionGroup = new GroupBox(); prescriptionGroup.Text = "Create Prescription";
-            prescriptionGroup.Size = new Size(800, 300);
-            prescriptionGroup.Location = new Point(10, 10);
-            prescriptionGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel prescriptionGroup = CreateSectionCard("Create Prescription", new Size(800, 300), new Point(10, 10));
             prescriptionGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
@@ -1298,6 +1346,8 @@ namespace PatientManagementSystem
             Label lblFollowUp = new Label() { Text = "Follow-up Date:", Location = new Point(540, 220), Size = new Size(100, 25) };
             DateTimePicker dtpFollowUp = new DateTimePicker() { Name = "dtpFollowUp", Location = new Point(540, 245), Size = new Size(150, 25) };
             dtpFollowUp.MinDate = DateTime.Today;
+            dtpFollowUp.Format = DateTimePickerFormat.Custom;
+            dtpFollowUp.CustomFormat = "ddd, MMM dd, yyyy";
 
             prescriptionGroup.Controls.AddRange(new Control[] {
                 lblPatient, cmbPatient, lblDoctor, cmbDoctor, btnAddDoctor,
@@ -1356,10 +1406,7 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
             mainPanel.AutoScroll = true;
 
-            GroupBox billingGroup = new GroupBox(); billingGroup.Text = "Create Bill";
-            billingGroup.Size = new Size(800, 200);
-            billingGroup.Location = new Point(10, 10);
-            billingGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel billingGroup = CreateSectionCard("Create Bill", new Size(800, 200), new Point(10, 10));
             billingGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             // Patient Selection
@@ -1389,6 +1436,8 @@ namespace PatientManagementSystem
             Label lblDueDate = new Label() { Text = "Due Date:", Location = new Point(600, 70), Size = new Size(70, 25) };
             DateTimePicker dtpDueDate = new DateTimePicker() { Name = "dtpDueDate", Location = new Point(680, 70), Size = new Size(100, 25) };
             dtpDueDate.MinDate = DateTime.Today;
+            dtpDueDate.Format = DateTimePickerFormat.Custom;
+            dtpDueDate.CustomFormat = "dd-MMM-yy";
 
             // Status
             Label lblStatus = new Label() { Text = "Status:", Location = new Point(20, 110), Size = new Size(100, 25) };
@@ -1522,18 +1571,19 @@ namespace PatientManagementSystem
             summaryPanel.Controls.AddRange(new Control[] { patientsCard, appointmentsCard, billsCard, revenueCard });
 
             // Date Range Selection
-            GroupBox dateRangeGroup = new GroupBox(); dateRangeGroup.Text = "Sales Summary";
-            dateRangeGroup.Size = new Size(800, 80);
-            dateRangeGroup.Location = new Point(10, 120);
-            dateRangeGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+            Panel dateRangeGroup = CreateSectionCard("Sales Summary", new Size(800, 80), new Point(10, 120));
             dateRangeGroup.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
 
             Label lblFromDate = new Label() { Text = "From Date:", Location = new Point(20, 30), Size = new Size(80, 25) };
             DateTimePicker dtpFromDate = new DateTimePicker() { Name = "dtpFromDate", Location = new Point(100, 30), Size = new Size(150, 25) };
+            dtpFromDate.Format = DateTimePickerFormat.Custom;
+            dtpFromDate.CustomFormat = "ddd, MMM dd, yyyy";
             dtpFromDate.Value = DateTime.Today.AddDays(-7);
 
             Label lblToDate = new Label() { Text = "To Date:", Location = new Point(270, 30), Size = new Size(60, 25) };
             DateTimePicker dtpToDate = new DateTimePicker() { Name = "dtpToDate", Location = new Point(340, 30), Size = new Size(150, 25) };
+            dtpToDate.Format = DateTimePickerFormat.Custom;
+            dtpToDate.CustomFormat = "ddd, MMM dd, yyyy";
             dtpToDate.Value = DateTime.Today;
 
             Button btnGenerateReport = new Button() { Text = "Generate Report", Location = new Point(510, 25), Size = new Size(130, 35) };
@@ -1598,7 +1648,7 @@ namespace PatientManagementSystem
         }
 
         // DATABASE OPERATIONS
-        private void SavePatient(GroupBox personalInfo, GroupBox medicalInfo, Button btnSavePatient)
+        private void SavePatient(Panel personalInfo, Panel medicalInfo, Button btnSavePatient)
         {
             try
             {
@@ -1698,7 +1748,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void LoadPatientIntoForm(int patientId, GroupBox personalInfo, GroupBox medicalInfo, Button btnSavePatient)
+        private void LoadPatientIntoForm(int patientId, Panel personalInfo, Panel medicalInfo, Button btnSavePatient)
         {
             try
             {
@@ -1861,7 +1911,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void ClearPatientForm(GroupBox personalInfo, GroupBox medicalInfo)
+        private void ClearPatientForm(Panel personalInfo, Panel medicalInfo)
         {
             foreach (Control control in personalInfo.Controls.Cast<Control>().Concat(medicalInfo.Controls.Cast<Control>()))
             {
@@ -1924,7 +1974,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void SaveAppointment(GroupBox appointmentGroup)
+        private void SaveAppointment(Panel appointmentGroup)
         {
             try
             {
@@ -2125,7 +2175,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void SavePrescription(GroupBox prescriptionGroup)
+        private void SavePrescription(Panel prescriptionGroup)
         {
             try
             {
@@ -2196,7 +2246,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void PrintPrescription(GroupBox prescriptionGroup, ComboBox cmbPatient)
+        private void PrintPrescription(Panel prescriptionGroup, ComboBox cmbPatient)
         {
             ComboBox cmbDoctor = prescriptionGroup.Controls["cmbDoctor"] as ComboBox;
             TextBox txtDiagnosis = prescriptionGroup.Controls["txtDiagnosis"] as TextBox;
@@ -2212,37 +2262,39 @@ namespace PatientManagementSystem
             }
 
             string patientName = ((DataRowView)cmbPatient.SelectedItem)["DisplayName"].ToString();
-
-            StringBuilder sb = new StringBuilder();
-            sb.AppendLine("PRESCRIPTION");
-            sb.AppendLine($"Date: {DateTime.Today:d}");
-            sb.AppendLine();
-            sb.AppendLine($"Patient: {patientName}");
-            sb.AppendLine($"Doctor: {cmbDoctor.Text}");
-            sb.AppendLine();
-            sb.AppendLine($"Diagnosis: {txtDiagnosis.Text}");
-            sb.AppendLine();
-            sb.AppendLine("Medicines:");
-            sb.AppendLine(txtMedicines.Text);
-            if (!string.IsNullOrWhiteSpace(txtInstructions.Text))
-            {
-                sb.AppendLine();
-                sb.AppendLine($"Instructions: {txtInstructions.Text}");
-            }
-            sb.AppendLine();
-            sb.AppendLine($"Follow-up Date: {dtpFollowUp.Value.Date:d}");
-
-            string content = sb.ToString();
+            string doctorName = cmbDoctor.Text;
+            string diagnosis = txtDiagnosis.Text;
+            string medicines = txtMedicines.Text;
+            string instructions = txtInstructions.Text;
+            DateTime followUpDate = dtpFollowUp.Value.Date;
 
             try
             {
                 PrintDocument printDoc = new PrintDocument();
-                Font printFont = new Font("Segoe UI", 11F);
+                Font titleFont = new Font("Segoe UI", 14F, FontStyle.Bold);
+                Font bodyFont = new Font("Segoe UI", 11F);
+
                 printDoc.PrintPage += (s, e) =>
                 {
-                    int contentTop = DrawPrintHeader(e.Graphics, e.MarginBounds);
-                    Rectangle contentBounds = new Rectangle(e.MarginBounds.Left, contentTop, e.MarginBounds.Width, e.MarginBounds.Bottom - contentTop);
-                    e.Graphics.DrawString(content, printFont, Brushes.Black, contentBounds);
+                    Graphics g = e.Graphics;
+                    Rectangle bounds = e.MarginBounds;
+                    int y = DrawPrintHeader(g, bounds);
+
+                    g.DrawString("PRESCRIPTION", titleFont, Brushes.Black, bounds.Left, y);
+                    y += 32;
+                    g.DrawString($"Date: {DateTime.Today:d}", bodyFont, Brushes.Black, bounds.Left, y);
+                    y += 28;
+
+                    y = DrawPrintSection(g, bounds, bodyFont, y, $"Patient: {patientName}\nDoctor: {doctorName}");
+
+                    string clinicalBlock = $"Diagnosis: {diagnosis}\n\nMedicines:\n{medicines}";
+                    if (!string.IsNullOrWhiteSpace(instructions))
+                        clinicalBlock += $"\n\nInstructions: {instructions}";
+                    y = DrawPrintSection(g, bounds, bodyFont, y, clinicalBlock);
+
+                    DrawPrintSection(g, bounds, bodyFont, y, $"Follow-up Date: {followUpDate:d}");
+
+                    DrawPrintFooter(g, bounds);
                 };
 
                 using (PrintPreviewDialog previewDialog = new PrintPreviewDialog())
@@ -2256,6 +2308,34 @@ namespace PatientManagementSystem
             catch (Exception ex)
             {
                 MessageBox.Show($"Error printing prescription: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        // Draws one block of text with a divider line above it, and returns the
+        // Y position for the next block. Gives printed documents clear visual
+        // breaks between entries instead of one dense wall of text.
+        private int DrawPrintSection(Graphics g, Rectangle bounds, Font font, int y, string text)
+        {
+            g.DrawLine(Pens.LightGray, bounds.Left, y, bounds.Right, y);
+            y += 12;
+
+            SizeF size = g.MeasureString(text, font, bounds.Width);
+            g.DrawString(text, font, Brushes.Black, new RectangleF(bounds.Left, y, bounds.Width, size.Height));
+            return y + (int)size.Height + 12;
+        }
+
+        // Draws a small "Generated by <app>" credit line at the bottom of a
+        // printed page, distinct from the hospital's own letterhead at the top.
+        private void DrawPrintFooter(Graphics g, Rectangle bounds)
+        {
+            using (Font footerFont = new Font("Segoe UI", 8F, FontStyle.Italic))
+            {
+                string footerText = "Generated by Patient Management System";
+                SizeF size = g.MeasureString(footerText, footerFont);
+                float x = bounds.Left + (bounds.Width - size.Width) / 2;
+                float y = bounds.Bottom - size.Height;
+                g.DrawLine(Pens.LightGray, bounds.Left, y - 5, bounds.Right, y - 5);
+                g.DrawString(footerText, footerFont, Brushes.Gray, x, y);
             }
         }
 
@@ -2341,34 +2421,39 @@ namespace PatientManagementSystem
             DateTime billDate = Convert.ToDateTime(row.Cells["BillDate"].Value);
             object dueDateValue = row.Cells["DueDate"].Value;
 
-            StringBuilder sb = new StringBuilder();
-            sb.AppendLine("INVOICE");
-            sb.AppendLine($"Bill Date: {billDate:d}");
+            string dateLine = $"Bill Date: {billDate:d}";
             if (dueDateValue != null && dueDateValue != DBNull.Value)
-                sb.AppendLine($"Due Date: {Convert.ToDateTime(dueDateValue):d}");
-            sb.AppendLine();
-            sb.AppendLine($"Patient: {patientName}");
-            sb.AppendLine($"Service: {service}");
-            sb.AppendLine();
-            sb.AppendLine($"Total Amount: {totalAmount:C2}");
-            sb.AppendLine($"Amount Paid: {amountPaid:C2}");
-            sb.AppendLine($"Balance Due: {balance:C2}");
-            sb.AppendLine();
-            sb.AppendLine($"Payment Status: {status}");
-            if (!string.IsNullOrWhiteSpace(method))
-                sb.AppendLine($"Payment Method: {method}");
+                dateLine += $"\nDue Date: {Convert.ToDateTime(dueDateValue):d}";
 
-            string content = sb.ToString();
+            string patientBlock = $"Patient: {patientName}\nService: {service}";
+            string amountBlock = $"Total Amount: {totalAmount:C2}\nAmount Paid: {amountPaid:C2}\nBalance Due: {balance:C2}";
+            string statusBlock = $"Payment Status: {status}";
+            if (!string.IsNullOrWhiteSpace(method))
+                statusBlock += $"\nPayment Method: {method}";
 
             try
             {
                 PrintDocument printDoc = new PrintDocument();
-                Font printFont = new Font("Segoe UI", 11F);
+                Font titleFont = new Font("Segoe UI", 14F, FontStyle.Bold);
+                Font bodyFont = new Font("Segoe UI", 11F);
+
                 printDoc.PrintPage += (s, e) =>
                 {
-                    int contentTop = DrawPrintHeader(e.Graphics, e.MarginBounds);
-                    Rectangle contentBounds = new Rectangle(e.MarginBounds.Left, contentTop, e.MarginBounds.Width, e.MarginBounds.Bottom - contentTop);
-                    e.Graphics.DrawString(content, printFont, Brushes.Black, contentBounds);
+                    Graphics g = e.Graphics;
+                    Rectangle bounds = e.MarginBounds;
+                    int y = DrawPrintHeader(g, bounds);
+
+                    g.DrawString("INVOICE", titleFont, Brushes.Black, bounds.Left, y);
+                    y += 32;
+                    SizeF dateSize = g.MeasureString(dateLine, bodyFont, bounds.Width);
+                    g.DrawString(dateLine, bodyFont, Brushes.Black, new RectangleF(bounds.Left, y, bounds.Width, dateSize.Height));
+                    y += (int)dateSize.Height + 12;
+
+                    y = DrawPrintSection(g, bounds, bodyFont, y, patientBlock);
+                    y = DrawPrintSection(g, bounds, bodyFont, y, amountBlock);
+                    DrawPrintSection(g, bounds, bodyFont, y, statusBlock);
+
+                    DrawPrintFooter(g, bounds);
                 };
 
                 using (PrintPreviewDialog previewDialog = new PrintPreviewDialog())
@@ -2453,7 +2538,7 @@ namespace PatientManagementSystem
             }
         }
 
-        private void SaveBill(GroupBox billingGroup)
+        private void SaveBill(Panel billingGroup)
         {
             try
             {
@@ -2664,8 +2749,9 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COUNT(*) FROM Appointments WHERE DATE(AppointmentDate) = DATE('now')", connection))
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COUNT(*) FROM Appointments WHERE DATE(AppointmentDate) = @today", connection))
                 {
+                    cmd.Parameters.AddWithValue("@today", DateTime.Today.ToString("yyyy-MM-dd"));
                     int count = Convert.ToInt32(cmd.ExecuteScalar());
                     connection.Close();
                     return count;
@@ -2704,8 +2790,9 @@ namespace PatientManagementSystem
             try
             {
                 connection.Open();
-                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(AmountPaid), 0) FROM Billing WHERE DATE(BillDate) = DATE('now')", connection))
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(AmountPaid), 0) FROM Billing WHERE DATE(BillDate) = @today", connection))
                 {
+                    cmd.Parameters.AddWithValue("@today", DateTime.Today.ToString("yyyy-MM-dd"));
                     decimal revenue = Convert.ToDecimal(cmd.ExecuteScalar());
                     connection.Close();
                     return revenue;
@@ -2821,6 +2908,54 @@ namespace PatientManagementSystem
             catch (Exception ex)
             {
                 MessageBox.Show($"Error backing up database: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ImportDatabase(object sender, EventArgs e)
+        {
+            if (MessageBox.Show(
+                "Importing a database will replace ALL current data (patients, appointments, bills, etc.) " +
+                "with the contents of the selected file. Your current database will be backed up first, but this cannot be undone from within the app. Continue?",
+                "Import Database", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            using (OpenFileDialog openDialog = new OpenFileDialog())
+            {
+                openDialog.Filter = "Database files (*.db)|*.db|All files (*.*)|*.*";
+                if (openDialog.ShowDialog() != DialogResult.OK)
+                    return;
+
+                try
+                {
+                    string dbPath = Path.Combine(Application.StartupPath, "PatientManagement.db");
+                    string backupPath = Path.Combine(Application.StartupPath, $"PatientManagement_PreImport_{DateTime.Now:yyyyMMdd_HHmmss}.db");
+
+                    connection.Close();
+                    SQLiteConnection.ClearAllPools();
+
+                    File.Copy(dbPath, backupPath, true);
+                    File.Copy(openDialog.FileName, dbPath, true);
+
+                    // Bring the imported file up to the current schema (adds any
+                    // columns/tables this version expects that the import predates).
+                    DbInit.EnsureSchema(connectionString);
+
+                    connection = new SQLiteConnection(connectionString);
+
+                    RefreshAllGrids();
+                    RefreshPatientComboBoxes();
+                    RefreshDoctorComboBoxes();
+                    RefreshHomeProfile();
+
+                    LogAudit("Import Database", openDialog.FileName);
+                    MessageBox.Show($"Database imported successfully.\n\nYour previous database was backed up to:\n{backupPath}", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error importing database: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
             }
         }
 
