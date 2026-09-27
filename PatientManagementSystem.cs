@@ -1112,6 +1112,12 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                if (dtpDOB.Value.Date > DateTime.Today)
+                {
+                    MessageBox.Show("Date of birth cannot be in the future.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
                 connection.Open();
                 string query = @"INSERT INTO Patients
                     (FirstName, LastName, DateOfBirth, Gender, PhoneNumber, Email, Address, EmergencyContact, BloodGroup, MedicalHistory)
@@ -1354,6 +1360,13 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                if (DateTime.TryParse($"{dtpAppDate.Value.Date:yyyy-MM-dd} {cmbAppTime.Text}", out DateTime appointmentDateTime)
+                    && appointmentDateTime < DateTime.Now)
+                {
+                    MessageBox.Show("Please choose an appointment date and time that hasn't already passed.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
                 connection.Open();
 
                 using (SQLiteCommand conflictCmd = new SQLiteCommand(
@@ -1548,6 +1561,12 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                if (dtpFollowUp.Value.Date < DateTime.Today)
+                {
+                    MessageBox.Show("Follow-up date cannot be in the past.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
                 connection.Open();
                 string query = @"INSERT INTO Prescriptions
                     (PatientID, DoctorName, PrescriptionDate, Diagnosis, Medicines, Instructions, FollowUpDate)
@@ -1738,6 +1757,12 @@ namespace PatientManagementSystem
                 if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtService.Text) || numAmount.Value <= 0)
                 {
                     MessageBox.Show("Please fill in all required fields.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (dtpDueDate.Value.Date < DateTime.Today)
+                {
+                    MessageBox.Show("Due date cannot be in the past.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
