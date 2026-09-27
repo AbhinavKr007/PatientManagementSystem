@@ -352,8 +352,11 @@ namespace PatientManagementSystem
         public MainForm(string username)
         {
             currentUsername = username;
-            InitializeComponent();
+            // Must run before InitializeComponent(): tab creation queries the
+            // database immediately (e.g. the Dashboard's initial refresh), and
+            // connection is null until this sets it up.
             InitializeDatabase();
+            InitializeComponent();
         }
 
         private void InitializeComponent()
