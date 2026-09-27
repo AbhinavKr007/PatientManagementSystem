@@ -349,8 +349,8 @@ namespace PatientManagementSystem
         public MainForm(string username)
         {
             currentUsername = username;
-            InitializeComponent();
             InitializeDatabase();
+            InitializeComponent();
         }
 
         private void InitializeComponent()
@@ -851,8 +851,14 @@ namespace PatientManagementSystem
             btnDeleteAppointment.FlatStyle = FlatStyle.Flat;
             btnDeleteAppointment.Click += (s, e) => DeleteAppointment(dgvAppointments);
 
+            Button btnViewAppointment = new Button() { Text = "View", Location = new Point(490, 220), Size = new Size(90, 35) };
+            btnViewAppointment.BackColor = Color.FromArgb(0, 123, 255);
+            btnViewAppointment.ForeColor = Color.White;
+            btnViewAppointment.FlatStyle = FlatStyle.Flat;
+            btnViewAppointment.Click += (s, e) => ViewAppointmentDetails(dgvAppointments);
+
             mainPanel.Controls.AddRange(new Control[] {
-                appointmentGroup, btnSaveAppointment, btnCompleted, btnCancelled, btnDeleteAppointment,
+                appointmentGroup, btnSaveAppointment, btnCompleted, btnCancelled, btnDeleteAppointment, btnViewAppointment,
                 lblSearchAppointment, txtSearchAppointment, dgvAppointments
             });
             appointmentTab.Controls.Add(mainPanel);
@@ -941,8 +947,14 @@ namespace PatientManagementSystem
             txtSearchPrescription.TextChanged += (s, e) => LoadPrescriptions(dgvPrescriptions, txtSearchPrescription.Text);
             btnDeletePrescription.Click += (s, e) => DeletePrescription(dgvPrescriptions);
 
+            Button btnViewPrescription = new Button() { Text = "View", Location = new Point(350, 320), Size = new Size(90, 35) };
+            btnViewPrescription.BackColor = Color.FromArgb(0, 123, 255);
+            btnViewPrescription.ForeColor = Color.White;
+            btnViewPrescription.FlatStyle = FlatStyle.Flat;
+            btnViewPrescription.Click += (s, e) => ViewPrescription(dgvPrescriptions);
+
             mainPanel.Controls.AddRange(new Control[] {
-                prescriptionGroup, btnSavePrescription, btnPrintPrescription, btnDeletePrescription,
+                prescriptionGroup, btnSavePrescription, btnPrintPrescription, btnDeletePrescription, btnViewPrescription,
                 lblSearchPrescription, txtSearchPrescription, dgvPrescriptions
             });
             prescriptionTab.Controls.Add(mainPanel);
@@ -1291,12 +1303,14 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 using (SQLiteDataReader reader = cmd.ExecuteReader())
                 {
+                    DataTable dt = new DataTable();
+                    dt.Load(reader);
+
+                    // DataSource must be cleared before Items can be touched on an already-bound ComboBox.
+                    cmb.DataSource = null;
                     cmb.Items.Clear();
                     cmb.DisplayMember = "DisplayName";
                     cmb.ValueMember = "PatientID";
-
-                    DataTable dt = new DataTable();
-                    dt.Load(reader);
                     cmb.DataSource = dt;
                 }
                 connection.Close();
@@ -1369,6 +1383,13 @@ namespace PatientManagementSystem
             }
         }
 
+        private DateTime ClampToPickerRange(DateTime value, DateTimePicker picker)
+        {
+            if (value < picker.MinDate) return picker.MinDate;
+            if (value > picker.MaxDate) return picker.MaxDate;
+            return value;
+        }
+
         private void ClearPatientForm(GroupBox personalInfo, GroupBox medicalInfo)
         {
             foreach (Control control in personalInfo.Controls.Cast<Control>().Concat(medicalInfo.Controls.Cast<Control>()))
@@ -1378,7 +1399,7 @@ namespace PatientManagementSystem
                 else if (control is ComboBox cmb)
                     cmb.SelectedIndex = -1;
                 else if (control is DateTimePicker dtp)
-                    dtp.Value = DateTime.Today;
+                    dtp.Value = ClampToPickerRange(DateTime.Today, dtp);
             }
         }
 
@@ -1593,6 +1614,30 @@ namespace PatientManagementSystem
             }
         }
 
+        private void ViewAppointmentDetails(DataGridView dgv)
+        {
+            if (dgv.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("Please select an appointment to view.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            DataGridViewRow row = dgv.SelectedRows[0];
+            DateTime appointmentDate = Convert.ToDateTime(row.Cells["AppointmentDate"].Value);
+            string notes = row.Cells["Notes"].Value == DBNull.Value ? "(none)" : row.Cells["Notes"].Value.ToString();
+
+            string details =
+                $"Patient: {row.Cells["PatientName"].Value}\n" +
+                $"Doctor: {row.Cells["DoctorName"].Value}\n" +
+                $"Department: {row.Cells["Department"].Value}\n" +
+                $"Date: {appointmentDate:d}\n" +
+                $"Time: {row.Cells["AppointmentTime"].Value}\n" +
+                $"Status: {row.Cells["Status"].Value}\n" +
+                $"Notes: {notes}";
+
+            MessageBox.Show(details, "Appointment Details", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
         private void DeleteAppointment(DataGridView dgv)
         {
             if (dgv.SelectedRows.Count == 0)
@@ -1688,7 +1733,7 @@ namespace PatientManagementSystem
                     else if (control is ComboBox cmb && cmb.Name != "cmbPatient")
                         cmb.SelectedIndex = -1;
                     else if (control is DateTimePicker dtp)
-                        dtp.Value = DateTime.Today;
+                        dtp.Value = ClampToPickerRange(DateTime.Today, dtp);
                 }
 
                 TextBox txtSearchPrescription = prescriptionGroup.Parent.Controls["txtSearchPrescription"] as TextBox;
@@ -1721,34 +1766,109 @@ namespace PatientManagementSystem
 
             string patientName = ((DataRowView)cmbPatient.SelectedItem)["DisplayName"].ToString();
 
-            StringBuilder sb = new StringBuilder();
-            sb.AppendLine("PRESCRIPTION");
-            sb.AppendLine($"Date: {DateTime.Today:d}");
-            sb.AppendLine();
-            sb.AppendLine($"Patient: {patientName}");
-            sb.AppendLine($"Doctor: {txtDoctor.Text}");
-            sb.AppendLine();
-            sb.AppendLine($"Diagnosis: {txtDiagnosis.Text}");
-            sb.AppendLine();
-            sb.AppendLine("Medicines:");
-            sb.AppendLine(txtMedicines.Text);
-            if (!string.IsNullOrWhiteSpace(txtInstructions.Text))
-            {
-                sb.AppendLine();
-                sb.AppendLine($"Instructions: {txtInstructions.Text}");
-            }
-            sb.AppendLine();
-            sb.AppendLine($"Follow-up Date: {dtpFollowUp.Value.Date:d}");
+            ShowPrescriptionPreview(patientName, txtDoctor.Text.Trim(), DateTime.Today,
+                txtDiagnosis.Text.Trim(), txtMedicines.Text.Trim(), txtInstructions.Text.Trim(), dtpFollowUp.Value.Date);
+        }
 
-            string content = sb.ToString();
+        private void ViewPrescription(DataGridView dgv)
+        {
+            if (dgv.SelectedRows.Count == 0)
+            {
+                MessageBox.Show("Please select a prescription to view.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            int prescriptionId = Convert.ToInt32(dgv.SelectedRows[0].Cells["PrescriptionID"].Value);
 
             try
             {
+                connection.Open();
+                string query = @"SELECT p.FirstName || ' ' || p.LastName as PatientName,
+                    pr.DoctorName, pr.PrescriptionDate, pr.Diagnosis, pr.Medicines, pr.Instructions, pr.FollowUpDate
+                    FROM Prescriptions pr
+                    JOIN Patients p ON pr.PatientID = p.PatientID
+                    WHERE pr.PrescriptionID = @id";
+
+                string patientName = null, doctorName = null, diagnosis = null, medicines = null, instructions = null;
+                DateTime prescriptionDate = DateTime.Today, followUpDate = DateTime.Today;
+
+                using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", prescriptionId);
+                    using (SQLiteDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            patientName = reader["PatientName"].ToString();
+                            doctorName = reader["DoctorName"].ToString();
+                            prescriptionDate = Convert.ToDateTime(reader["PrescriptionDate"]);
+                            diagnosis = reader["Diagnosis"].ToString();
+                            medicines = reader["Medicines"].ToString();
+                            instructions = reader["Instructions"] == DBNull.Value ? "" : reader["Instructions"].ToString();
+                            followUpDate = reader["FollowUpDate"] == DBNull.Value ? prescriptionDate : Convert.ToDateTime(reader["FollowUpDate"]);
+                        }
+                    }
+                }
+                connection.Close();
+
+                if (patientName == null)
+                {
+                    MessageBox.Show("This prescription could not be found.", "Not Found", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                ShowPrescriptionPreview(patientName, doctorName, prescriptionDate, diagnosis, medicines, instructions, followUpDate);
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error loading prescription: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ShowPrescriptionPreview(string patientName, string doctorName, DateTime prescriptionDate,
+            string diagnosis, string medicines, string instructions, DateTime followUpDate)
+        {
+            try
+            {
+                Font titleFont = new Font("Segoe UI", 16F, FontStyle.Bold);
+                Font labelFont = new Font("Segoe UI", 10F, FontStyle.Bold);
+                Font bodyFont = new Font("Segoe UI", 10F);
+
                 PrintDocument printDoc = new PrintDocument();
-                Font printFont = new Font("Segoe UI", 11F);
                 printDoc.PrintPage += (s, e) =>
                 {
-                    e.Graphics.DrawString(content, printFont, Brushes.Black, e.MarginBounds);
+                    Graphics g = e.Graphics;
+                    int left = e.MarginBounds.Left;
+                    int right = e.MarginBounds.Right;
+                    float y = e.MarginBounds.Top;
+
+                    const string title = "PRESCRIPTION";
+                    SizeF titleSize = g.MeasureString(title, titleFont);
+                    g.DrawString(title, titleFont, Brushes.Black, left + (right - left - titleSize.Width) / 2, y);
+                    y += titleSize.Height + 6;
+
+                    g.DrawLine(Pens.Black, left, y, right, y);
+                    y += 14;
+
+                    y = DrawPrescriptionField(g, "Date:", prescriptionDate.ToString("d"), left, y, labelFont, bodyFont);
+                    y = DrawPrescriptionField(g, "Patient:", patientName, left, y, labelFont, bodyFont);
+                    y = DrawPrescriptionField(g, "Doctor:", doctorName, left, y, labelFont, bodyFont);
+                    y += 10;
+
+                    y = DrawPrescriptionSection(g, "Diagnosis:", diagnosis, left, y, labelFont, bodyFont, right - left);
+                    y += 8;
+                    y = DrawPrescriptionSection(g, "Medicines:", medicines, left, y, labelFont, bodyFont, right - left);
+
+                    if (!string.IsNullOrWhiteSpace(instructions))
+                    {
+                        y += 8;
+                        y = DrawPrescriptionSection(g, "Instructions:", instructions, left, y, labelFont, bodyFont, right - left);
+                    }
+
+                    y += 10;
+                    DrawPrescriptionField(g, "Follow-up Date:", followUpDate.ToString("d"), left, y, labelFont, bodyFont);
                 };
 
                 using (PrintPreviewDialog previewDialog = new PrintPreviewDialog())
@@ -1761,8 +1881,26 @@ namespace PatientManagementSystem
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error printing prescription: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Error showing prescription: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private float DrawPrescriptionField(Graphics g, string label, string value, int left, float y, Font labelFont, Font bodyFont)
+        {
+            g.DrawString(label, labelFont, Brushes.Black, left, y);
+            float labelWidth = g.MeasureString(label, labelFont).Width;
+            g.DrawString(value, bodyFont, Brushes.Black, left + labelWidth + 6, y);
+            return y + Math.Max(labelFont.GetHeight(g), bodyFont.GetHeight(g)) + 4;
+        }
+
+        private float DrawPrescriptionSection(Graphics g, string label, string value, int left, float y, Font labelFont, Font bodyFont, int width)
+        {
+            g.DrawString(label, labelFont, Brushes.Black, left, y);
+            y += labelFont.GetHeight(g) + 2;
+            RectangleF rect = new RectangleF(left, y, width, 300);
+            g.DrawString(value, bodyFont, Brushes.Black, rect);
+            SizeF size = g.MeasureString(value, bodyFont, width);
+            return y + size.Height + 2;
         }
 
         private void LoadPrescriptions(DataGridView dgv, string search = "")
@@ -2278,7 +2416,14 @@ Features: Patient Registration, Appointments, Prescriptions, Billing & Reports
                 authenticatedUsername = loginForm.AuthenticatedUsername;
             }
 
-            Application.Run(new MainForm(authenticatedUsername));
+            try
+            {
+                Application.Run(new MainForm(authenticatedUsername));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"The application failed to start: {ex.Message}", "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }
