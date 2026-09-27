@@ -92,6 +92,22 @@ namespace PatientManagementSystem
                 Action TEXT NOT NULL,
                 Details TEXT,
                 Timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+
+            @"CREATE TABLE IF NOT EXISTS Doctors (
+                DoctorID INTEGER PRIMARY KEY AUTOINCREMENT,
+                Name TEXT NOT NULL UNIQUE,
+                Specialization TEXT,
+                CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP
+            )",
+
+            @"CREATE TABLE IF NOT EXISTS HospitalProfile (
+                ProfileID INTEGER PRIMARY KEY CHECK (ProfileID = 1),
+                HospitalName TEXT NOT NULL DEFAULT 'Patient Management System',
+                Motto TEXT,
+                Address TEXT,
+                Phone TEXT,
+                Logo BLOB
             )"
         };
 
@@ -110,6 +126,16 @@ namespace PatientManagementSystem
                 }
                 MigrateAddIterationsColumn(conn);
                 EnsureDefaultAdmin(conn);
+                EnsureDefaultHospitalProfile(conn);
+            }
+        }
+
+        private static void EnsureDefaultHospitalProfile(SQLiteConnection conn)
+        {
+            using (SQLiteCommand cmd = new SQLiteCommand(
+                "INSERT OR IGNORE INTO HospitalProfile (ProfileID, HospitalName) VALUES (1, 'Patient Management System')", conn))
+            {
+                cmd.ExecuteNonQuery();
             }
         }
 
@@ -348,6 +374,7 @@ namespace PatientManagementSystem
         private string connectionString;
         private TabControl mainTabControl;
         private readonly string currentUsername;
+        private System.Windows.Forms.Timer homeClockTimer;
 
         public MainForm(string username)
         {
@@ -377,6 +404,7 @@ namespace PatientManagementSystem
             mainTabControl.SizeMode = TabSizeMode.Fixed;
 
             // Create tabs
+            CreateHomeTab();
             CreateDashboardTab();
             CreatePatientRegistrationTab();
             CreateAppointmentTab();
@@ -407,7 +435,8 @@ namespace PatientManagementSystem
             ToolStripMenuItem toolsMenu = new ToolStripMenuItem("Tools");
             toolsMenu.DropDownItems.Add("Backup Database", null, BackupDatabase);
             toolsMenu.DropDownItems.Add("View Audit Log", null, ShowAuditLog);
-            toolsMenu.DropDownItems.Add("Settings", null, ShowSettings);
+            toolsMenu.DropDownItems.Add("Manage Doctors", null, ShowManageDoctors);
+            toolsMenu.DropDownItems.Add("Hospital Profile", null, ShowSettings);
 
             // Help Menu
             ToolStripMenuItem helpMenu = new ToolStripMenuItem("Help");
@@ -449,6 +478,190 @@ namespace PatientManagementSystem
             }
 
             connection.Close();
+        }
+
+        // HOME / LANDING TAB
+        private void CreateHomeTab()
+        {
+            TabPage homeTab = new TabPage("Home");
+            homeTab.Name = "homeTab";
+            homeTab.BackColor = Color.White;
+
+            Panel mainPanel = new Panel();
+            mainPanel.Dock = DockStyle.Fill;
+            mainPanel.Padding = new Padding(20);
+            mainPanel.AutoScroll = true;
+
+            // Header: logo, hospital name/motto/address/phone, live clock
+            Panel headerPanel = new Panel();
+            headerPanel.Location = new Point(10, 10);
+            headerPanel.Size = new Size(1140, 140);
+            headerPanel.BackColor = Color.FromArgb(0, 123, 255);
+
+            PictureBox picLogo = new PictureBox() {
+                Name = "picHomeLogo",
+                Location = new Point(15, 15),
+                Size = new Size(110, 110),
+                SizeMode = PictureBoxSizeMode.Zoom,
+                BackColor = Color.White
+            };
+
+            Label lblHospitalName = new Label() {
+                Name = "lblHomeHospitalName",
+                Location = new Point(140, 15),
+                Size = new Size(700, 35),
+                Font = new Font("Segoe UI", 18F, FontStyle.Bold),
+                ForeColor = Color.White,
+                Text = "Patient Management System"
+            };
+
+            Label lblMotto = new Label() {
+                Name = "lblHomeMotto",
+                Location = new Point(140, 52),
+                Size = new Size(700, 25),
+                Font = new Font("Segoe UI", 10F, FontStyle.Italic),
+                ForeColor = Color.White
+            };
+
+            Label lblAddress = new Label() {
+                Name = "lblHomeAddress",
+                Location = new Point(140, 82),
+                Size = new Size(700, 20),
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = Color.White
+            };
+
+            Label lblPhone = new Label() {
+                Name = "lblHomePhone",
+                Location = new Point(140, 104),
+                Size = new Size(700, 20),
+                Font = new Font("Segoe UI", 9F),
+                ForeColor = Color.White
+            };
+
+            Label lblClock = new Label() {
+                Name = "lblHomeClock",
+                Location = new Point(870, 30),
+                Size = new Size(260, 60),
+                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
+                ForeColor = Color.White,
+                TextAlign = ContentAlignment.MiddleRight
+            };
+
+            headerPanel.Controls.AddRange(new Control[] { picLogo, lblHospitalName, lblMotto, lblAddress, lblPhone, lblClock });
+
+            // Quick access navigation
+            Label lblNavTitle = new Label() {
+                Text = "Quick Access",
+                Location = new Point(10, 165),
+                Size = new Size(300, 25),
+                Font = new Font("Segoe UI", 11F, FontStyle.Bold)
+            };
+
+            Panel navPanel = new Panel();
+            navPanel.Location = new Point(10, 195);
+            navPanel.Size = new Size(1140, 220);
+
+            var navItems = new (string Label, string TabName, Color Color, Color ForeColor)[] {
+                ("Dashboard", "dashboardTab", Color.FromArgb(40, 167, 69), Color.White),
+                ("Patient Registration", "Patient Registration", Color.FromArgb(0, 123, 255), Color.White),
+                ("Appointments", "Appointments", Color.FromArgb(23, 162, 184), Color.White),
+                ("Prescriptions", "Prescriptions", Color.FromArgb(111, 66, 193), Color.White),
+                ("Billing", "Billing", Color.FromArgb(255, 193, 7), Color.Black),
+                ("Reports & Summary", "Reports & Summary", Color.FromArgb(220, 53, 69), Color.White),
+            };
+
+            int navX = 0, navY = 0;
+            foreach (var item in navItems)
+            {
+                Button navButton = new Button() {
+                    Text = item.Label,
+                    Size = new Size(180, 100),
+                    Location = new Point(navX, navY),
+                    BackColor = item.Color,
+                    ForeColor = item.ForeColor,
+                    FlatStyle = FlatStyle.Flat,
+                    Font = new Font("Segoe UI", 11F, FontStyle.Bold)
+                };
+                string targetTab = item.TabName;
+                navButton.Click += (s, e) => {
+                    foreach (TabPage tp in mainTabControl.TabPages)
+                    {
+                        if (tp.Name == targetTab || tp.Text == targetTab)
+                        {
+                            mainTabControl.SelectedTab = tp;
+                            break;
+                        }
+                    }
+                };
+                navPanel.Controls.Add(navButton);
+
+                navX += 200;
+                if (navX > 1000) { navX = 0; navY += 120; }
+            }
+
+            mainPanel.Controls.AddRange(new Control[] { headerPanel, lblNavTitle, navPanel });
+            homeTab.Controls.Add(mainPanel);
+            mainTabControl.TabPages.Add(homeTab);
+
+            homeClockTimer = new System.Windows.Forms.Timer();
+            homeClockTimer.Interval = 1000;
+            homeClockTimer.Tick += (s, e) => {
+                Label clockLbl = FindControlsRecursive(mainTabControl, c => c.Name == "lblHomeClock").FirstOrDefault() as Label;
+                if (clockLbl != null) clockLbl.Text = DateTime.Now.ToString("dddd, MMM dd, yyyy") + "\n" + DateTime.Now.ToString("hh:mm:ss tt");
+            };
+            homeClockTimer.Start();
+
+            RefreshHomeProfile();
+        }
+
+        private void RefreshHomeProfile()
+        {
+            try
+            {
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand(
+                    "SELECT HospitalName, Motto, Address, Phone, Logo FROM HospitalProfile WHERE ProfileID = 1", connection))
+                using (SQLiteDataReader reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        string name = reader["HospitalName"].ToString();
+                        string motto = reader["Motto"] == DBNull.Value ? "" : reader["Motto"].ToString();
+                        string address = reader["Address"] == DBNull.Value ? "" : reader["Address"].ToString();
+                        string phone = reader["Phone"] == DBNull.Value ? "" : reader["Phone"].ToString();
+                        byte[] logoBytes = reader["Logo"] == DBNull.Value ? null : (byte[])reader["Logo"];
+
+                        Label lblName = FindControlsRecursive(mainTabControl, c => c.Name == "lblHomeHospitalName").FirstOrDefault() as Label;
+                        if (lblName != null) lblName.Text = name;
+
+                        Label lblMotto = FindControlsRecursive(mainTabControl, c => c.Name == "lblHomeMotto").FirstOrDefault() as Label;
+                        if (lblMotto != null) lblMotto.Text = motto;
+
+                        Label lblAddress = FindControlsRecursive(mainTabControl, c => c.Name == "lblHomeAddress").FirstOrDefault() as Label;
+                        if (lblAddress != null) lblAddress.Text = string.IsNullOrWhiteSpace(address) ? "" : $"Address: {address}";
+
+                        Label lblPhone = FindControlsRecursive(mainTabControl, c => c.Name == "lblHomePhone").FirstOrDefault() as Label;
+                        if (lblPhone != null) lblPhone.Text = string.IsNullOrWhiteSpace(phone) ? "" : $"Phone: {phone}";
+
+                        PictureBox picLogo = FindControlsRecursive(mainTabControl, c => c.Name == "picHomeLogo").FirstOrDefault() as PictureBox;
+                        if (picLogo != null)
+                        {
+                            Image oldImage = picLogo.Image;
+                            picLogo.Image = logoBytes != null ? Image.FromStream(new MemoryStream(logoBytes)) : null;
+                            oldImage?.Dispose();
+                        }
+
+                        this.Text = $"Patient Management System - {name}";
+                    }
+                }
+                connection.Close();
+            }
+            catch
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+            }
         }
 
         // DASHBOARD TAB
@@ -779,17 +992,20 @@ namespace PatientManagementSystem
             });
 
             // Buttons
-            Button btnSavePatient = new Button() { Text = "Save Patient", Location = new Point(10, 440), Size = new Size(120, 35) };
+            Button btnSavePatient = new Button() { Name = "btnSavePatient", Text = "Save Patient", Location = new Point(10, 440), Size = new Size(120, 35) };
             btnSavePatient.BackColor = Color.FromArgb(0, 123, 255);
             btnSavePatient.ForeColor = Color.White;
             btnSavePatient.FlatStyle = FlatStyle.Flat;
-            btnSavePatient.Click += (s, e) => SavePatient(personalInfoGroup, medicalInfoGroup);
+            btnSavePatient.Click += (s, e) => SavePatient(personalInfoGroup, medicalInfoGroup, btnSavePatient);
 
             Button btnClearPatient = new Button() { Text = "Clear", Location = new Point(140, 440), Size = new Size(80, 35) };
             btnClearPatient.BackColor = Color.FromArgb(108, 117, 125);
             btnClearPatient.ForeColor = Color.White;
             btnClearPatient.FlatStyle = FlatStyle.Flat;
-            btnClearPatient.Click += (s, e) => ClearPatientForm(personalInfoGroup, medicalInfoGroup);
+            btnClearPatient.Click += (s, e) => {
+                ClearPatientForm(personalInfoGroup, medicalInfoGroup);
+                ResetPatientFormMode(btnSavePatient);
+            };
 
             Button btnDeletePatient = new Button() { Text = "Delete Patient", Location = new Point(230, 440), Size = new Size(120, 35) };
             btnDeletePatient.BackColor = Color.FromArgb(220, 53, 69);
@@ -804,11 +1020,22 @@ namespace PatientManagementSystem
             DataGridView dgvPatients = new DataGridView() { Name = "dgvPatients", Location = new Point(10, 520), Size = new Size(800, 220) };
             dgvPatients.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             dgvPatients.ReadOnly = true;
+            dgvPatients.AllowUserToAddRows = false;
             dgvPatients.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             LoadPatients(dgvPatients);
 
             txtSearchPatient.TextChanged += (s, e) => LoadPatients(dgvPatients, txtSearchPatient.Text);
-            btnDeletePatient.Click += (s, e) => DeletePatient(dgvPatients);
+            btnDeletePatient.Click += (s, e) => {
+                DeletePatient(dgvPatients);
+                ClearPatientForm(personalInfoGroup, medicalInfoGroup);
+                ResetPatientFormMode(btnSavePatient);
+            };
+            dgvPatients.CellClick += (s, e) => {
+                if (e.RowIndex < 0) return;
+                object idValue = dgvPatients.Rows[e.RowIndex].Cells["PatientID"].Value;
+                if (idValue == null || idValue == DBNull.Value) return;
+                LoadPatientIntoForm(Convert.ToInt32(idValue), personalInfoGroup, medicalInfoGroup, btnSavePatient);
+            };
 
             mainPanel.Controls.AddRange(new Control[] {
                 personalInfoGroup, medicalInfoGroup, btnSavePatient, btnClearPatient, btnDeletePatient,
@@ -842,7 +1069,12 @@ namespace PatientManagementSystem
 
             // Doctor Name
             Label lblDoctor = new Label() { Text = "Doctor Name:", Location = new Point(400, 30), Size = new Size(100, 25) };
-            TextBox txtDoctor = new TextBox() { Name = "txtDoctor", Location = new Point(510, 30), Size = new Size(200, 25) };
+            ComboBox cmbDoctor = new ComboBox() { Name = "cmbDoctor", Location = new Point(510, 30), Size = new Size(160, 25) };
+            cmbDoctor.DropDownStyle = ComboBoxStyle.DropDownList;
+            LoadDoctorsInComboBox(cmbDoctor);
+            Button btnAddDoctor = new Button() { Text = "+", Location = new Point(675, 30), Size = new Size(30, 25) };
+            btnAddDoctor.FlatStyle = FlatStyle.Flat;
+            btnAddDoctor.Click += (s, e) => { ShowManageDoctors(s, e); LoadDoctorsInComboBox(cmbDoctor); };
 
             // Department
             Label lblDepartment = new Label() { Text = "Department:", Location = new Point(20, 70), Size = new Size(100, 25) };
@@ -866,7 +1098,7 @@ namespace PatientManagementSystem
             TextBox txtNotes = new TextBox() { Name = "txtNotes", Location = new Point(130, 110), Size = new Size(550, 50), Multiline = true };
 
             appointmentGroup.Controls.AddRange(new Control[] {
-                lblPatient, cmbPatient, lblDoctor, txtDoctor,
+                lblPatient, cmbPatient, lblDoctor, cmbDoctor, btnAddDoctor,
                 lblDepartment, cmbDepartment, lblAppDate, dtpAppDate, lblAppTime, cmbAppTime,
                 lblNotes, txtNotes
             });
@@ -942,7 +1174,12 @@ namespace PatientManagementSystem
 
             // Doctor Name
             Label lblDoctor = new Label() { Text = "Doctor Name:", Location = new Point(400, 30), Size = new Size(100, 25) };
-            TextBox txtDoctor = new TextBox() { Name = "txtDoctor", Location = new Point(510, 30), Size = new Size(200, 25) };
+            ComboBox cmbDoctor = new ComboBox() { Name = "cmbDoctor", Location = new Point(510, 30), Size = new Size(160, 25) };
+            cmbDoctor.DropDownStyle = ComboBoxStyle.DropDownList;
+            LoadDoctorsInComboBox(cmbDoctor);
+            Button btnAddDoctor = new Button() { Text = "+", Location = new Point(675, 30), Size = new Size(30, 25) };
+            btnAddDoctor.FlatStyle = FlatStyle.Flat;
+            btnAddDoctor.Click += (s, e) => { ShowManageDoctors(s, e); LoadDoctorsInComboBox(cmbDoctor); };
 
             // Diagnosis
             Label lblDiagnosis = new Label() { Text = "Diagnosis:", Location = new Point(20, 70), Size = new Size(100, 25) };
@@ -963,7 +1200,7 @@ namespace PatientManagementSystem
             dtpFollowUp.MinDate = DateTime.Today;
 
             prescriptionGroup.Controls.AddRange(new Control[] {
-                lblPatient, cmbPatient, lblDoctor, txtDoctor,
+                lblPatient, cmbPatient, lblDoctor, cmbDoctor, btnAddDoctor,
                 lblDiagnosis, txtDiagnosis, lblMedicines, txtMedicines,
                 lblInstructions, txtInstructions, lblFollowUp, dtpFollowUp
             });
@@ -1223,7 +1460,7 @@ namespace PatientManagementSystem
         }
 
         // DATABASE OPERATIONS
-        private void SavePatient(GroupBox personalInfo, GroupBox medicalInfo)
+        private void SavePatient(GroupBox personalInfo, GroupBox medicalInfo, Button btnSavePatient)
         {
             try
             {
@@ -1267,10 +1504,19 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                bool isEdit = btnSavePatient.Tag is int;
+                int editingPatientId = isEdit ? (int)btnSavePatient.Tag : 0;
+
                 connection.Open();
-                string query = @"INSERT INTO Patients
-                    (FirstName, LastName, DateOfBirth, Gender, PhoneNumber, Email, Address, EmergencyContact, BloodGroup, MedicalHistory)
-                    VALUES (@fname, @lname, @dob, @gender, @phone, @email, @address, @emergency, @bloodgroup, @medical)";
+                string query = isEdit
+                    ? @"UPDATE Patients SET
+                        FirstName=@fname, LastName=@lname, DateOfBirth=@dob, Gender=@gender,
+                        PhoneNumber=@phone, Email=@email, Address=@address, EmergencyContact=@emergency,
+                        BloodGroup=@bloodgroup, MedicalHistory=@medical
+                        WHERE PatientID=@id"
+                    : @"INSERT INTO Patients
+                        (FirstName, LastName, DateOfBirth, Gender, PhoneNumber, Email, Address, EmergencyContact, BloodGroup, MedicalHistory)
+                        VALUES (@fname, @lname, @dob, @gender, @phone, @email, @address, @emergency, @bloodgroup, @medical)";
 
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
@@ -1284,15 +1530,18 @@ namespace PatientManagementSystem
                     cmd.Parameters.AddWithValue("@emergency", txtEmergency.Text.Trim());
                     cmd.Parameters.AddWithValue("@bloodgroup", cmbBloodGroup.Text);
                     cmd.Parameters.AddWithValue("@medical", txtMedicalHistory.Text.Trim());
+                    if (isEdit)
+                        cmd.Parameters.AddWithValue("@id", editingPatientId);
 
                     cmd.ExecuteNonQuery();
                 }
                 connection.Close();
 
-                LogAudit("Register Patient", $"{txtFirstName.Text.Trim()} {txtLastName.Text.Trim()}");
+                LogAudit(isEdit ? "Update Patient" : "Register Patient", $"{txtFirstName.Text.Trim()} {txtLastName.Text.Trim()}");
 
-                MessageBox.Show("Patient registered successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show(isEdit ? "Patient updated successfully!" : "Patient registered successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 ClearPatientForm(personalInfo, medicalInfo);
+                ResetPatientFormMode(btnSavePatient);
 
                 // Refresh patient list
                 TextBox txtSearchPatient = personalInfo.Parent.Controls["txtSearchPatient"] as TextBox;
@@ -1309,6 +1558,50 @@ namespace PatientManagementSystem
                     connection.Close();
                 MessageBox.Show($"Error saving patient: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
+        }
+
+        private void LoadPatientIntoForm(int patientId, GroupBox personalInfo, GroupBox medicalInfo, Button btnSavePatient)
+        {
+            try
+            {
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT * FROM Patients WHERE PatientID = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", patientId);
+                    using (SQLiteDataReader reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            (personalInfo.Controls["txtFirstName"] as TextBox).Text = reader["FirstName"].ToString();
+                            (personalInfo.Controls["txtLastName"] as TextBox).Text = reader["LastName"].ToString();
+                            (personalInfo.Controls["dtpDOB"] as DateTimePicker).Value = Convert.ToDateTime(reader["DateOfBirth"]);
+                            (personalInfo.Controls["cmbGender"] as ComboBox).Text = reader["Gender"].ToString();
+                            (personalInfo.Controls["txtPhone"] as TextBox).Text = reader["PhoneNumber"].ToString();
+                            (personalInfo.Controls["txtEmail"] as TextBox).Text = reader["Email"] == DBNull.Value ? "" : reader["Email"].ToString();
+                            (personalInfo.Controls["txtAddress"] as TextBox).Text = reader["Address"].ToString();
+                            (medicalInfo.Controls["cmbBloodGroup"] as ComboBox).Text = reader["BloodGroup"] == DBNull.Value ? "" : reader["BloodGroup"].ToString();
+                            (medicalInfo.Controls["txtEmergency"] as TextBox).Text = reader["EmergencyContact"] == DBNull.Value ? "" : reader["EmergencyContact"].ToString();
+                            (medicalInfo.Controls["txtMedicalHistory"] as TextBox).Text = reader["MedicalHistory"] == DBNull.Value ? "" : reader["MedicalHistory"].ToString();
+                        }
+                    }
+                }
+                connection.Close();
+
+                btnSavePatient.Tag = patientId;
+                btnSavePatient.Text = "Update Patient";
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error loading patient: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ResetPatientFormMode(Button btnSavePatient)
+        {
+            btnSavePatient.Tag = null;
+            btnSavePatient.Text = "Save Patient";
         }
 
         private void LoadPatients(DataGridView dgv, string search = "")
@@ -1350,7 +1643,9 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 using (SQLiteDataReader reader = cmd.ExecuteReader())
                 {
-                    cmb.Items.Clear();
+                    // Items.Clear() throws once DataSource is set from a previous
+                    // call (e.g. on refresh after saving a patient); replacing
+                    // DataSource directly is the correct way to rebind.
                     cmb.DisplayMember = "DisplayName";
                     cmb.ValueMember = "PatientID";
 
@@ -1496,13 +1791,13 @@ namespace PatientManagementSystem
             try
             {
                 ComboBox cmbPatient = appointmentGroup.Controls["cmbPatient"] as ComboBox;
-                TextBox txtDoctor = appointmentGroup.Controls["txtDoctor"] as TextBox;
+                ComboBox cmbDoctor = appointmentGroup.Controls["cmbDoctor"] as ComboBox;
                 ComboBox cmbDepartment = appointmentGroup.Controls["cmbDepartment"] as ComboBox;
                 DateTimePicker dtpAppDate = appointmentGroup.Controls["dtpAppDate"] as DateTimePicker;
                 ComboBox cmbAppTime = appointmentGroup.Controls["cmbAppTime"] as ComboBox;
                 TextBox txtNotes = appointmentGroup.Controls["txtNotes"] as TextBox;
 
-                if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtDoctor.Text) ||
+                if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(cmbDoctor.Text) ||
                     cmbDepartment.SelectedIndex == -1 || cmbAppTime.SelectedIndex == -1)
                 {
                     MessageBox.Show("Please fill in all required fields.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1522,7 +1817,7 @@ namespace PatientManagementSystem
                     "SELECT COUNT(*) FROM Appointments WHERE DoctorName = @doctor AND AppointmentDate = @date AND AppointmentTime = @time AND Status != 'Cancelled'",
                     connection))
                 {
-                    conflictCmd.Parameters.AddWithValue("@doctor", txtDoctor.Text.Trim());
+                    conflictCmd.Parameters.AddWithValue("@doctor", cmbDoctor.Text.Trim());
                     conflictCmd.Parameters.AddWithValue("@date", dtpAppDate.Value.Date);
                     conflictCmd.Parameters.AddWithValue("@time", cmbAppTime.Text);
 
@@ -1542,7 +1837,7 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@patientid", ((DataRowView)cmbPatient.SelectedItem)["PatientID"]);
-                    cmd.Parameters.AddWithValue("@doctor", txtDoctor.Text.Trim());
+                    cmd.Parameters.AddWithValue("@doctor", cmbDoctor.Text.Trim());
                     cmd.Parameters.AddWithValue("@date", dtpAppDate.Value.Date);
                     cmd.Parameters.AddWithValue("@time", cmbAppTime.Text);
                     cmd.Parameters.AddWithValue("@dept", cmbDepartment.Text);
@@ -1552,7 +1847,7 @@ namespace PatientManagementSystem
                 }
                 connection.Close();
 
-                LogAudit("Schedule Appointment", $"Doctor {txtDoctor.Text.Trim()} on {dtpAppDate.Value.Date:d} {cmbAppTime.Text}");
+                LogAudit("Schedule Appointment", $"Doctor {cmbDoctor.Text.Trim()} on {dtpAppDate.Value.Date:d} {cmbAppTime.Text}");
 
                 MessageBox.Show("Appointment scheduled successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
 
@@ -1697,13 +1992,13 @@ namespace PatientManagementSystem
             try
             {
                 ComboBox cmbPatient = prescriptionGroup.Controls["cmbPatient"] as ComboBox;
-                TextBox txtDoctor = prescriptionGroup.Controls["txtDoctor"] as TextBox;
+                ComboBox cmbDoctor = prescriptionGroup.Controls["cmbDoctor"] as ComboBox;
                 TextBox txtDiagnosis = prescriptionGroup.Controls["txtDiagnosis"] as TextBox;
                 TextBox txtMedicines = prescriptionGroup.Controls["txtMedicines"] as TextBox;
                 TextBox txtInstructions = prescriptionGroup.Controls["txtInstructions"] as TextBox;
                 DateTimePicker dtpFollowUp = prescriptionGroup.Controls["dtpFollowUp"] as DateTimePicker;
 
-                if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtDoctor.Text) ||
+                if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(cmbDoctor.Text) ||
                     string.IsNullOrWhiteSpace(txtDiagnosis.Text) || string.IsNullOrWhiteSpace(txtMedicines.Text))
                 {
                     MessageBox.Show("Please fill in all required fields.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1724,7 +2019,7 @@ namespace PatientManagementSystem
                 using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
                 {
                     cmd.Parameters.AddWithValue("@patientid", ((DataRowView)cmbPatient.SelectedItem)["PatientID"]);
-                    cmd.Parameters.AddWithValue("@doctor", txtDoctor.Text.Trim());
+                    cmd.Parameters.AddWithValue("@doctor", cmbDoctor.Text.Trim());
                     cmd.Parameters.AddWithValue("@date", DateTime.Today);
                     cmd.Parameters.AddWithValue("@diagnosis", txtDiagnosis.Text.Trim());
                     cmd.Parameters.AddWithValue("@medicines", txtMedicines.Text.Trim());
@@ -1765,13 +2060,13 @@ namespace PatientManagementSystem
 
         private void PrintPrescription(GroupBox prescriptionGroup, ComboBox cmbPatient)
         {
-            TextBox txtDoctor = prescriptionGroup.Controls["txtDoctor"] as TextBox;
+            ComboBox cmbDoctor = prescriptionGroup.Controls["cmbDoctor"] as ComboBox;
             TextBox txtDiagnosis = prescriptionGroup.Controls["txtDiagnosis"] as TextBox;
             TextBox txtMedicines = prescriptionGroup.Controls["txtMedicines"] as TextBox;
             TextBox txtInstructions = prescriptionGroup.Controls["txtInstructions"] as TextBox;
             DateTimePicker dtpFollowUp = prescriptionGroup.Controls["dtpFollowUp"] as DateTimePicker;
 
-            if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtDoctor.Text) ||
+            if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(cmbDoctor.Text) ||
                 string.IsNullOrWhiteSpace(txtDiagnosis.Text) || string.IsNullOrWhiteSpace(txtMedicines.Text))
             {
                 MessageBox.Show("Please fill in the prescription fields before printing.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
@@ -1785,7 +2080,7 @@ namespace PatientManagementSystem
             sb.AppendLine($"Date: {DateTime.Today:d}");
             sb.AppendLine();
             sb.AppendLine($"Patient: {patientName}");
-            sb.AppendLine($"Doctor: {txtDoctor.Text}");
+            sb.AppendLine($"Doctor: {cmbDoctor.Text}");
             sb.AppendLine();
             sb.AppendLine($"Diagnosis: {txtDiagnosis.Text}");
             sb.AppendLine();
@@ -2284,7 +2579,366 @@ namespace PatientManagementSystem
 
         private void ShowSettings(object sender, EventArgs e)
         {
-            MessageBox.Show("Settings feature will be implemented in future versions.", "Settings", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            string name = "", motto = "", address = "", phone = "";
+            byte[] logoBytes = null;
+
+            try
+            {
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand(
+                    "SELECT HospitalName, Motto, Address, Phone, Logo FROM HospitalProfile WHERE ProfileID = 1", connection))
+                using (SQLiteDataReader reader = cmd.ExecuteReader())
+                {
+                    if (reader.Read())
+                    {
+                        name = reader["HospitalName"].ToString();
+                        motto = reader["Motto"] == DBNull.Value ? "" : reader["Motto"].ToString();
+                        address = reader["Address"] == DBNull.Value ? "" : reader["Address"].ToString();
+                        phone = reader["Phone"] == DBNull.Value ? "" : reader["Phone"].ToString();
+                        if (reader["Logo"] != DBNull.Value) logoBytes = (byte[])reader["Logo"];
+                    }
+                }
+                connection.Close();
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error loading hospital profile: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            using (Form settingsForm = new Form())
+            {
+                settingsForm.Text = "Hospital Profile";
+                settingsForm.Size = new Size(480, 430);
+                settingsForm.StartPosition = FormStartPosition.CenterParent;
+                settingsForm.FormBorderStyle = FormBorderStyle.FixedDialog;
+                settingsForm.MaximizeBox = false;
+                settingsForm.MinimizeBox = false;
+
+                Label lblName = new Label() { Text = "Hospital Name:", Location = new Point(20, 20), Size = new Size(120, 25) };
+                TextBox txtName = new TextBox() { Location = new Point(150, 20), Size = new Size(290, 25), Text = name };
+
+                Label lblMotto = new Label() { Text = "Motto:", Location = new Point(20, 55), Size = new Size(120, 25) };
+                TextBox txtMotto = new TextBox() { Location = new Point(150, 55), Size = new Size(290, 25), Text = motto };
+
+                Label lblAddress = new Label() { Text = "Address:", Location = new Point(20, 90), Size = new Size(120, 45) };
+                TextBox txtAddress = new TextBox() { Location = new Point(150, 90), Size = new Size(290, 45), Multiline = true, Text = address };
+
+                Label lblPhone = new Label() { Text = "Phone:", Location = new Point(20, 145), Size = new Size(120, 25) };
+                TextBox txtPhone = new TextBox() { Location = new Point(150, 145), Size = new Size(290, 25), Text = phone };
+
+                Label lblLogo = new Label() { Text = "Logo:", Location = new Point(20, 180), Size = new Size(120, 100) };
+                PictureBox picPreview = new PictureBox() {
+                    Location = new Point(150, 180),
+                    Size = new Size(100, 100),
+                    SizeMode = PictureBoxSizeMode.Zoom,
+                    BorderStyle = BorderStyle.FixedSingle
+                };
+                if (logoBytes != null)
+                    picPreview.Image = Image.FromStream(new MemoryStream(logoBytes));
+
+                byte[] pendingLogoBytes = logoBytes;
+
+                Button btnChooseLogo = new Button() { Text = "Choose Image...", Location = new Point(260, 210), Size = new Size(140, 30) };
+                btnChooseLogo.BackColor = Color.FromArgb(108, 117, 125);
+                btnChooseLogo.ForeColor = Color.White;
+                btnChooseLogo.FlatStyle = FlatStyle.Flat;
+                btnChooseLogo.Click += (s, e2) =>
+                {
+                    using (OpenFileDialog ofd = new OpenFileDialog())
+                    {
+                        ofd.Filter = "Image files (*.png;*.jpg;*.jpeg;*.bmp)|*.png;*.jpg;*.jpeg;*.bmp";
+                        if (ofd.ShowDialog() == DialogResult.OK)
+                        {
+                            pendingLogoBytes = File.ReadAllBytes(ofd.FileName);
+                            Image oldImage = picPreview.Image;
+                            picPreview.Image = Image.FromFile(ofd.FileName);
+                            oldImage?.Dispose();
+                        }
+                    }
+                };
+
+                Button btnSave = new Button() { Text = "Save", Location = new Point(150, 340), Size = new Size(100, 35), DialogResult = DialogResult.OK };
+                btnSave.BackColor = Color.FromArgb(0, 123, 255);
+                btnSave.ForeColor = Color.White;
+                btnSave.FlatStyle = FlatStyle.Flat;
+
+                Button btnCancel = new Button() { Text = "Cancel", Location = new Point(260, 340), Size = new Size(100, 35), DialogResult = DialogResult.Cancel };
+
+                settingsForm.Controls.AddRange(new Control[] {
+                    lblName, txtName, lblMotto, txtMotto, lblAddress, txtAddress,
+                    lblPhone, txtPhone, lblLogo, picPreview, btnChooseLogo, btnSave, btnCancel
+                });
+                settingsForm.AcceptButton = btnSave;
+                settingsForm.CancelButton = btnCancel;
+
+                if (settingsForm.ShowDialog(this) != DialogResult.OK)
+                    return;
+
+                if (string.IsNullOrWhiteSpace(txtName.Text))
+                {
+                    MessageBox.Show("Hospital name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                try
+                {
+                    connection.Open();
+                    using (SQLiteCommand cmd = new SQLiteCommand(
+                        "UPDATE HospitalProfile SET HospitalName=@name, Motto=@motto, Address=@address, Phone=@phone, Logo=@logo WHERE ProfileID = 1",
+                        connection))
+                    {
+                        cmd.Parameters.AddWithValue("@name", txtName.Text.Trim());
+                        cmd.Parameters.AddWithValue("@motto", txtMotto.Text.Trim());
+                        cmd.Parameters.AddWithValue("@address", txtAddress.Text.Trim());
+                        cmd.Parameters.AddWithValue("@phone", txtPhone.Text.Trim());
+                        cmd.Parameters.AddWithValue("@logo", (object)pendingLogoBytes ?? DBNull.Value);
+                        cmd.ExecuteNonQuery();
+                    }
+                    connection.Close();
+
+                    LogAudit("Update Hospital Profile", txtName.Text.Trim());
+                    RefreshHomeProfile();
+                    MessageBox.Show("Hospital profile updated.", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    if (connection.State == ConnectionState.Open)
+                        connection.Close();
+                    MessageBox.Show($"Error updating hospital profile: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void ShowManageDoctors(object sender, EventArgs e)
+        {
+            using (Form doctorsForm = new Form())
+            {
+                doctorsForm.Text = "Manage Doctors";
+                doctorsForm.Size = new Size(580, 480);
+                doctorsForm.StartPosition = FormStartPosition.CenterParent;
+
+                Label lblName = new Label() { Text = "Doctor Name:", Location = new Point(15, 15), Size = new Size(100, 25) };
+                TextBox txtName = new TextBox() { Location = new Point(120, 15), Size = new Size(220, 25) };
+
+                Label lblSpec = new Label() { Text = "Specialization:", Location = new Point(15, 50), Size = new Size(100, 25) };
+                TextBox txtSpec = new TextBox() { Location = new Point(120, 50), Size = new Size(220, 25) };
+
+                Button btnAdd = new Button() { Text = "Add", Location = new Point(360, 15), Size = new Size(90, 30) };
+                btnAdd.BackColor = Color.FromArgb(40, 167, 69);
+                btnAdd.ForeColor = Color.White;
+                btnAdd.FlatStyle = FlatStyle.Flat;
+
+                Button btnUpdate = new Button() { Text = "Update", Location = new Point(360, 50), Size = new Size(90, 30) };
+                btnUpdate.BackColor = Color.FromArgb(0, 123, 255);
+                btnUpdate.ForeColor = Color.White;
+                btnUpdate.FlatStyle = FlatStyle.Flat;
+
+                Button btnClear = new Button() { Text = "Clear", Location = new Point(15, 90), Size = new Size(90, 30) };
+                btnClear.BackColor = Color.FromArgb(108, 117, 125);
+                btnClear.ForeColor = Color.White;
+                btnClear.FlatStyle = FlatStyle.Flat;
+
+                Button btnDelete = new Button() { Text = "Delete Selected", Location = new Point(115, 90), Size = new Size(140, 30) };
+                btnDelete.BackColor = Color.FromArgb(220, 53, 69);
+                btnDelete.ForeColor = Color.White;
+                btnDelete.FlatStyle = FlatStyle.Flat;
+
+                DataGridView dgvDoctors = new DataGridView() {
+                    Location = new Point(15, 130),
+                    Size = new Size(535, 300),
+                    ReadOnly = true,
+                    SelectionMode = DataGridViewSelectionMode.FullRowSelect,
+                    AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
+                    AllowUserToAddRows = false
+                };
+
+                void LoadDoctorsGrid()
+                {
+                    try
+                    {
+                        connection.Open();
+                        using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(
+                            "SELECT DoctorID, Name, Specialization FROM Doctors ORDER BY Name", connection))
+                        {
+                            DataTable dt = new DataTable();
+                            adapter.Fill(dt);
+                            dgvDoctors.DataSource = dt;
+                        }
+                        connection.Close();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error loading doctors: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                }
+
+                void ClearDoctorForm()
+                {
+                    txtName.Clear();
+                    txtSpec.Clear();
+                    txtName.Tag = null;
+                }
+
+                btnAdd.Click += (s, e2) =>
+                {
+                    if (string.IsNullOrWhiteSpace(txtName.Text))
+                    {
+                        MessageBox.Show("Doctor name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    try
+                    {
+                        connection.Open();
+                        using (SQLiteCommand cmd = new SQLiteCommand(
+                            "INSERT INTO Doctors (Name, Specialization) VALUES (@n, @s)", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@n", txtName.Text.Trim());
+                            cmd.Parameters.AddWithValue("@s", txtSpec.Text.Trim());
+                            cmd.ExecuteNonQuery();
+                        }
+                        connection.Close();
+
+                        LogAudit("Add Doctor", txtName.Text.Trim());
+                        ClearDoctorForm();
+                        LoadDoctorsGrid();
+                        RefreshDoctorComboBoxes();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error adding doctor: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+
+                dgvDoctors.CellClick += (s, e2) =>
+                {
+                    if (e2.RowIndex < 0) return;
+                    object idVal = dgvDoctors.Rows[e2.RowIndex].Cells["DoctorID"].Value;
+                    if (idVal == null || idVal == DBNull.Value) return;
+
+                    txtName.Tag = Convert.ToInt32(idVal);
+                    txtName.Text = dgvDoctors.Rows[e2.RowIndex].Cells["Name"].Value?.ToString();
+                    txtSpec.Text = dgvDoctors.Rows[e2.RowIndex].Cells["Specialization"].Value?.ToString();
+                };
+
+                btnUpdate.Click += (s, e2) =>
+                {
+                    if (!(txtName.Tag is int doctorId))
+                    {
+                        MessageBox.Show("Select a doctor from the list first.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    if (string.IsNullOrWhiteSpace(txtName.Text))
+                    {
+                        MessageBox.Show("Doctor name is required.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    try
+                    {
+                        connection.Open();
+                        using (SQLiteCommand cmd = new SQLiteCommand(
+                            "UPDATE Doctors SET Name=@n, Specialization=@s WHERE DoctorID=@id", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@n", txtName.Text.Trim());
+                            cmd.Parameters.AddWithValue("@s", txtSpec.Text.Trim());
+                            cmd.Parameters.AddWithValue("@id", doctorId);
+                            cmd.ExecuteNonQuery();
+                        }
+                        connection.Close();
+
+                        LogAudit("Update Doctor", txtName.Text.Trim());
+                        ClearDoctorForm();
+                        LoadDoctorsGrid();
+                        RefreshDoctorComboBoxes();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error updating doctor: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+
+                btnClear.Click += (s, e2) => ClearDoctorForm();
+
+                btnDelete.Click += (s, e2) =>
+                {
+                    if (dgvDoctors.SelectedRows.Count == 0) return;
+                    object idVal = dgvDoctors.SelectedRows[0].Cells["DoctorID"].Value;
+                    if (idVal == null || idVal == DBNull.Value) return;
+
+                    if (MessageBox.Show("Delete the selected doctor?", "Confirm Delete", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                        return;
+
+                    try
+                    {
+                        connection.Open();
+                        using (SQLiteCommand cmd = new SQLiteCommand("DELETE FROM Doctors WHERE DoctorID=@id", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@id", Convert.ToInt32(idVal));
+                            cmd.ExecuteNonQuery();
+                        }
+                        connection.Close();
+
+                        LogAudit("Delete Doctor", idVal.ToString());
+                        ClearDoctorForm();
+                        LoadDoctorsGrid();
+                        RefreshDoctorComboBoxes();
+                    }
+                    catch (Exception ex)
+                    {
+                        if (connection.State == ConnectionState.Open)
+                            connection.Close();
+                        MessageBox.Show($"Error deleting doctor: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+
+                doctorsForm.Controls.AddRange(new Control[] {
+                    lblName, txtName, lblSpec, txtSpec, btnAdd, btnUpdate, btnClear, btnDelete, dgvDoctors
+                });
+
+                LoadDoctorsGrid();
+                doctorsForm.ShowDialog(this);
+            }
+        }
+
+        private void LoadDoctorsInComboBox(ComboBox cmb)
+        {
+            try
+            {
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT DoctorID, Name FROM Doctors ORDER BY Name", connection))
+                using (SQLiteDataReader reader = cmd.ExecuteReader())
+                {
+                    cmb.DisplayMember = "Name";
+                    cmb.ValueMember = "DoctorID";
+
+                    DataTable dt = new DataTable();
+                    dt.Load(reader);
+                    cmb.DataSource = dt;
+                }
+                connection.Close();
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error loading doctors: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void RefreshDoctorComboBoxes()
+        {
+            foreach (Control control in FindControlsRecursive(mainTabControl, c => c is ComboBox cmb && cmb.Name == "cmbDoctor"))
+            {
+                LoadDoctorsInComboBox((ComboBox)control);
+            }
         }
 
         private void ShowAbout(object sender, EventArgs e)
@@ -2293,6 +2947,8 @@ namespace PatientManagementSystem
 
 A comprehensive healthcare management solution
 Features: Patient Registration, Appointments, Prescriptions, Billing & Reports
+
+Developed by Abhinav Kumar
 
 © 2025 - Healthcare Solutions";
 
@@ -2303,6 +2959,8 @@ Features: Patient Registration, Appointments, Prescriptions, Billing & Reports
         {
             if (disposing)
             {
+                homeClockTimer?.Stop();
+                homeClockTimer?.Dispose();
                 connection?.Close();
                 connection?.Dispose();
             }
