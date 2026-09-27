@@ -26,6 +26,12 @@ jobs:
     - name: Build application
       run: dotnet build PatientManagementSystem.csproj --configuration Release --no-restore
 
+    - name: Restore test dependencies
+      run: dotnet restore PatientManagementSystem.Tests/PatientManagementSystem.Tests.csproj
+
+    - name: Run unit tests
+      run: dotnet test PatientManagementSystem.Tests/PatientManagementSystem.Tests.csproj --configuration Release --no-restore
+
     - name: Publish standalone executable
       run: |
         dotnet publish PatientManagementSystem.csproj --configuration Release --runtime win-x64 --self-contained true --output ./publish --verbosity normal

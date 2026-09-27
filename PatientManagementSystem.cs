@@ -12,6 +12,9 @@ using System.Drawing.Printing;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Security.Cryptography;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("PatientManagementSystem.Tests")]
 
 namespace PatientManagementSystem
 {
@@ -457,10 +460,20 @@ namespace PatientManagementSystem
             mainPanel.Padding = new Padding(20);
             mainPanel.AutoScroll = true;
 
+            // Reminder Banner
+            Label lblReminderBanner = new Label() {
+                Name = "lblDashReminderBanner",
+                Location = new Point(10, 10),
+                Size = new Size(800, 32),
+                TextAlign = ContentAlignment.MiddleLeft,
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                Padding = new Padding(10, 0, 0, 0)
+            };
+
             // Summary Cards
             Panel summaryPanel = new Panel();
             summaryPanel.Size = new Size(800, 100);
-            summaryPanel.Location = new Point(10, 10);
+            summaryPanel.Location = new Point(10, 52);
 
             var (appointmentsCard, lblAppointmentsValue) = CreateDashboardCard("Today's Appointments", "0", Color.FromArgb(40, 167, 69));
             appointmentsCard.Location = new Point(0, 0);
@@ -485,7 +498,7 @@ namespace PatientManagementSystem
             // Today's Appointments
             GroupBox appointmentsGroup = new GroupBox(); appointmentsGroup.Text = "Today's Appointments";
             appointmentsGroup.Size = new Size(800, 250);
-            appointmentsGroup.Location = new Point(10, 120);
+            appointmentsGroup.Location = new Point(10, 162);
             appointmentsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
 
             DataGridView dgvDashAppointments = new DataGridView() {
@@ -500,7 +513,7 @@ namespace PatientManagementSystem
             // Pending Bills
             GroupBox pendingBillsGroup = new GroupBox(); pendingBillsGroup.Text = "Pending Bills";
             pendingBillsGroup.Size = new Size(800, 250);
-            pendingBillsGroup.Location = new Point(10, 380);
+            pendingBillsGroup.Location = new Point(10, 422);
             pendingBillsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
 
             DataGridView dgvDashPendingBills = new DataGridView() {
@@ -512,7 +525,7 @@ namespace PatientManagementSystem
             dgvDashPendingBills.ReadOnly = true;
             pendingBillsGroup.Controls.Add(dgvDashPendingBills);
 
-            mainPanel.Controls.AddRange(new Control[] { summaryPanel, appointmentsGroup, pendingBillsGroup });
+            mainPanel.Controls.AddRange(new Control[] { lblReminderBanner, summaryPanel, appointmentsGroup, pendingBillsGroup });
             dashboardTab.Controls.Add(mainPanel);
             mainTabControl.TabPages.Add(dashboardTab);
 
@@ -561,6 +574,49 @@ namespace PatientManagementSystem
 
             DataGridView dgvPendingBills = FindControlsRecursive(mainTabControl, c => c.Name == "dgvDashPendingBills").FirstOrDefault() as DataGridView;
             if (dgvPendingBills != null) LoadDashboardPendingBills(dgvPendingBills);
+
+            Label lblReminderBanner = FindControlsRecursive(mainTabControl, c => c.Name == "lblDashReminderBanner").FirstOrDefault() as Label;
+            if (lblReminderBanner != null)
+            {
+                int upcoming = GetUpcomingAppointmentsCount(48);
+                if (upcoming > 0)
+                {
+                    lblReminderBanner.Text = $"⏰ {upcoming} appointment(s) scheduled in the next 48 hours";
+                    lblReminderBanner.BackColor = Color.FromArgb(255, 243, 205);
+                    lblReminderBanner.ForeColor = Color.FromArgb(133, 100, 4);
+                }
+                else
+                {
+                    lblReminderBanner.Text = "No appointments scheduled in the next 48 hours";
+                    lblReminderBanner.BackColor = Color.FromArgb(240, 248, 255);
+                    lblReminderBanner.ForeColor = Color.FromArgb(108, 117, 125);
+                }
+            }
+        }
+
+        private int GetUpcomingAppointmentsCount(int hours)
+        {
+            try
+            {
+                connection.Open();
+                string query = @"SELECT COUNT(*) FROM Appointments
+                    WHERE Status = 'Scheduled'
+                    AND datetime(DATE(AppointmentDate) || ' ' || AppointmentTime) BETWEEN datetime('now') AND datetime('now', @offset)";
+
+                using (SQLiteCommand cmd = new SQLiteCommand(query, connection))
+                {
+                    cmd.Parameters.AddWithValue("@offset", $"+{hours} hours");
+                    int count = Convert.ToInt32(cmd.ExecuteScalar());
+                    connection.Close();
+                    return count;
+                }
+            }
+            catch
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                return 0;
+            }
         }
 
         private void LoadDashboardTodayAppointments(DataGridView dgv)
