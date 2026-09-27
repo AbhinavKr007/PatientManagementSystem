@@ -79,6 +79,7 @@ namespace PatientManagementSystem
                 Username TEXT NOT NULL UNIQUE,
                 PasswordHash TEXT NOT NULL,
                 Salt TEXT NOT NULL,
+                Iterations INTEGER NOT NULL DEFAULT 0,
                 CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
 
@@ -104,7 +105,26 @@ namespace PatientManagementSystem
                         cmd.ExecuteNonQuery();
                     }
                 }
+                MigrateAddIterationsColumn(conn);
                 EnsureDefaultAdmin(conn);
+            }
+        }
+
+        // Existing installs created their Users table before the Iterations column
+        // existed; CREATE TABLE IF NOT EXISTS won't retrofit it, so add it here.
+        private static void MigrateAddIterationsColumn(SQLiteConnection conn)
+        {
+            try
+            {
+                using (SQLiteCommand alter = new SQLiteCommand(
+                    "ALTER TABLE Users ADD COLUMN Iterations INTEGER NOT NULL DEFAULT 0", conn))
+                {
+                    alter.ExecuteNonQuery();
+                }
+            }
+            catch (SQLiteException)
+            {
+                // Column already exists.
             }
         }
 
@@ -116,14 +136,15 @@ namespace PatientManagementSystem
                 if (userCount == 0)
                 {
                     string salt = Guid.NewGuid().ToString("N");
-                    string hash = AuthHelper.HashPassword("admin123", salt);
+                    string hash = AuthHelper.HashPassword("admin123", salt, AuthHelper.DefaultIterations);
 
                     using (SQLiteCommand insert = new SQLiteCommand(
-                        "INSERT INTO Users (Username, PasswordHash, Salt) VALUES (@u, @h, @s)", conn))
+                        "INSERT INTO Users (Username, PasswordHash, Salt, Iterations) VALUES (@u, @h, @s, @i)", conn))
                     {
                         insert.Parameters.AddWithValue("@u", "admin");
                         insert.Parameters.AddWithValue("@h", hash);
                         insert.Parameters.AddWithValue("@s", salt);
+                        insert.Parameters.AddWithValue("@i", AuthHelper.DefaultIterations);
                         insert.ExecuteNonQuery();
                     }
                 }
@@ -133,13 +154,48 @@ namespace PatientManagementSystem
 
     internal static class AuthHelper
     {
-        public static string HashPassword(string password, string salt)
+        public const int DefaultIterations = 100_000;
+        private const int HashSizeBytes = 32;
+
+        // PBKDF2-HMACSHA256: a single SHA256(salt + password) round is fast enough
+        // for an attacker to brute-force offline at billions of guesses/sec; PBKDF2
+        // with a high iteration count makes each guess deliberately expensive.
+        public static string HashPassword(string password, string salt, int iterations)
+        {
+            byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
+                Encoding.UTF8.GetBytes(password),
+                Encoding.UTF8.GetBytes(salt),
+                iterations,
+                HashAlgorithmName.SHA256,
+                HashSizeBytes);
+            return Convert.ToBase64String(hash);
+        }
+
+        // Only used to verify passwords hashed before PBKDF2 was introduced.
+        private static string LegacyHashPassword(string password, string salt)
         {
             using (SHA256 sha = SHA256.Create())
             {
                 byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(salt + password));
                 return Convert.ToBase64String(bytes);
             }
+        }
+
+        private static bool HashesMatch(string computedHash, string storedHash)
+        {
+            byte[] computedBytes = Convert.FromBase64String(computedHash);
+            byte[] storedBytes;
+            try
+            {
+                storedBytes = Convert.FromBase64String(storedHash);
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+
+            return computedBytes.Length == storedBytes.Length &&
+                CryptographicOperations.FixedTimeEquals(computedBytes, storedBytes);
         }
 
         public static bool ValidateLogin(string connectionString, string username, string password, out string errorMessage)
@@ -151,9 +207,12 @@ namespace PatientManagementSystem
                 {
                     conn.Open();
                     using (SQLiteCommand cmd = new SQLiteCommand(
-                        "SELECT PasswordHash, Salt FROM Users WHERE Username = @u", conn))
+                        "SELECT PasswordHash, Salt, Iterations FROM Users WHERE Username = @u", conn))
                     {
                         cmd.Parameters.AddWithValue("@u", username);
+                        string storedHash, salt;
+                        int iterations;
+
                         using (SQLiteDataReader reader = cmd.ExecuteReader())
                         {
                             if (!reader.Read())
@@ -162,18 +221,31 @@ namespace PatientManagementSystem
                                 return false;
                             }
 
-                            string storedHash = reader["PasswordHash"].ToString();
-                            string salt = reader["Salt"].ToString();
-                            string computedHash = HashPassword(password, salt);
-
-                            if (computedHash != storedHash)
-                            {
-                                errorMessage = "Invalid username or password.";
-                                return false;
-                            }
-
-                            return true;
+                            storedHash = reader["PasswordHash"].ToString();
+                            salt = reader["Salt"].ToString();
+                            iterations = Convert.ToInt32(reader["Iterations"]);
                         }
+
+                        bool isValid;
+                        if (iterations > 0)
+                        {
+                            isValid = HashesMatch(HashPassword(password, salt, iterations), storedHash);
+                        }
+                        else
+                        {
+                            // Legacy single-round SHA256 hash from before PBKDF2 was introduced.
+                            isValid = HashesMatch(LegacyHashPassword(password, salt), storedHash);
+                            if (isValid)
+                                UpgradeToPbkdf2(conn, username, password);
+                        }
+
+                        if (!isValid)
+                        {
+                            errorMessage = "Invalid username or password.";
+                            return false;
+                        }
+
+                        return true;
                     }
                 }
             }
@@ -181,6 +253,24 @@ namespace PatientManagementSystem
             {
                 errorMessage = ex.Message;
                 return false;
+            }
+        }
+
+        // Transparently re-hashes a legacy password with PBKDF2 on successful login,
+        // so it never has to be verified against the weaker SHA256 hash again.
+        private static void UpgradeToPbkdf2(SQLiteConnection conn, string username, string password)
+        {
+            string newSalt = Guid.NewGuid().ToString("N");
+            string newHash = HashPassword(password, newSalt, DefaultIterations);
+
+            using (SQLiteCommand update = new SQLiteCommand(
+                "UPDATE Users SET PasswordHash = @h, Salt = @s, Iterations = @i WHERE Username = @u", conn))
+            {
+                update.Parameters.AddWithValue("@h", newHash);
+                update.Parameters.AddWithValue("@s", newSalt);
+                update.Parameters.AddWithValue("@i", DefaultIterations);
+                update.Parameters.AddWithValue("@u", username);
+                update.ExecuteNonQuery();
             }
         }
     }
