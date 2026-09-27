@@ -13,7 +13,9 @@
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Healthcare Solutions Ltd."
 #define MyAppExeName "PatientManagementSystem.exe"
-#define MyPublishDir "bin\Release\net6.0-windows\win-x64\publish"
+#ifndef MyPublishDir
+  #define MyPublishDir "bin\Release\net6.0-windows\win-x64\publish"
+#endif
 
 [Setup]
 ; Keep this GUID stable across releases so upgrades replace the same entry
