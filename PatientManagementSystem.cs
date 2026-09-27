@@ -79,6 +79,7 @@ namespace PatientManagementSystem
                 Username TEXT NOT NULL UNIQUE,
                 PasswordHash TEXT NOT NULL,
                 Salt TEXT NOT NULL,
+                Iterations INTEGER NOT NULL DEFAULT 0,
                 CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
 
@@ -104,7 +105,26 @@ namespace PatientManagementSystem
                         cmd.ExecuteNonQuery();
                     }
                 }
+                MigrateAddIterationsColumn(conn);
                 EnsureDefaultAdmin(conn);
+            }
+        }
+
+        // Existing installs created their Users table before the Iterations column
+        // existed; CREATE TABLE IF NOT EXISTS won't retrofit it, so add it here.
+        private static void MigrateAddIterationsColumn(SQLiteConnection conn)
+        {
+            try
+            {
+                using (SQLiteCommand alter = new SQLiteCommand(
+                    "ALTER TABLE Users ADD COLUMN Iterations INTEGER NOT NULL DEFAULT 0", conn))
+                {
+                    alter.ExecuteNonQuery();
+                }
+            }
+            catch (SQLiteException)
+            {
+                // Column already exists.
             }
         }
 
@@ -116,14 +136,15 @@ namespace PatientManagementSystem
                 if (userCount == 0)
                 {
                     string salt = Guid.NewGuid().ToString("N");
-                    string hash = AuthHelper.HashPassword("admin123", salt);
+                    string hash = AuthHelper.HashPassword("admin123", salt, AuthHelper.DefaultIterations);
 
                     using (SQLiteCommand insert = new SQLiteCommand(
-                        "INSERT INTO Users (Username, PasswordHash, Salt) VALUES (@u, @h, @s)", conn))
+                        "INSERT INTO Users (Username, PasswordHash, Salt, Iterations) VALUES (@u, @h, @s, @i)", conn))
                     {
                         insert.Parameters.AddWithValue("@u", "admin");
                         insert.Parameters.AddWithValue("@h", hash);
                         insert.Parameters.AddWithValue("@s", salt);
+                        insert.Parameters.AddWithValue("@i", AuthHelper.DefaultIterations);
                         insert.ExecuteNonQuery();
                     }
                 }
@@ -133,13 +154,48 @@ namespace PatientManagementSystem
 
     internal static class AuthHelper
     {
-        public static string HashPassword(string password, string salt)
+        public const int DefaultIterations = 100_000;
+        private const int HashSizeBytes = 32;
+
+        // PBKDF2-HMACSHA256: a single SHA256(salt + password) round is fast enough
+        // for an attacker to brute-force offline at billions of guesses/sec; PBKDF2
+        // with a high iteration count makes each guess deliberately expensive.
+        public static string HashPassword(string password, string salt, int iterations)
+        {
+            byte[] hash = Rfc2898DeriveBytes.Pbkdf2(
+                Encoding.UTF8.GetBytes(password),
+                Encoding.UTF8.GetBytes(salt),
+                iterations,
+                HashAlgorithmName.SHA256,
+                HashSizeBytes);
+            return Convert.ToBase64String(hash);
+        }
+
+        // Only used to verify passwords hashed before PBKDF2 was introduced.
+        private static string LegacyHashPassword(string password, string salt)
         {
             using (SHA256 sha = SHA256.Create())
             {
                 byte[] bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(salt + password));
                 return Convert.ToBase64String(bytes);
             }
+        }
+
+        private static bool HashesMatch(string computedHash, string storedHash)
+        {
+            byte[] computedBytes = Convert.FromBase64String(computedHash);
+            byte[] storedBytes;
+            try
+            {
+                storedBytes = Convert.FromBase64String(storedHash);
+            }
+            catch (FormatException)
+            {
+                return false;
+            }
+
+            return computedBytes.Length == storedBytes.Length &&
+                CryptographicOperations.FixedTimeEquals(computedBytes, storedBytes);
         }
 
         public static bool ValidateLogin(string connectionString, string username, string password, out string errorMessage)
@@ -151,9 +207,12 @@ namespace PatientManagementSystem
                 {
                     conn.Open();
                     using (SQLiteCommand cmd = new SQLiteCommand(
-                        "SELECT PasswordHash, Salt FROM Users WHERE Username = @u", conn))
+                        "SELECT PasswordHash, Salt, Iterations FROM Users WHERE Username = @u", conn))
                     {
                         cmd.Parameters.AddWithValue("@u", username);
+                        string storedHash, salt;
+                        int iterations;
+
                         using (SQLiteDataReader reader = cmd.ExecuteReader())
                         {
                             if (!reader.Read())
@@ -162,18 +221,31 @@ namespace PatientManagementSystem
                                 return false;
                             }
 
-                            string storedHash = reader["PasswordHash"].ToString();
-                            string salt = reader["Salt"].ToString();
-                            string computedHash = HashPassword(password, salt);
-
-                            if (computedHash != storedHash)
-                            {
-                                errorMessage = "Invalid username or password.";
-                                return false;
-                            }
-
-                            return true;
+                            storedHash = reader["PasswordHash"].ToString();
+                            salt = reader["Salt"].ToString();
+                            iterations = Convert.ToInt32(reader["Iterations"]);
                         }
+
+                        bool isValid;
+                        if (iterations > 0)
+                        {
+                            isValid = HashesMatch(HashPassword(password, salt, iterations), storedHash);
+                        }
+                        else
+                        {
+                            // Legacy single-round SHA256 hash from before PBKDF2 was introduced.
+                            isValid = HashesMatch(LegacyHashPassword(password, salt), storedHash);
+                            if (isValid)
+                                UpgradeToPbkdf2(conn, username, password);
+                        }
+
+                        if (!isValid)
+                        {
+                            errorMessage = "Invalid username or password.";
+                            return false;
+                        }
+
+                        return true;
                     }
                 }
             }
@@ -181,6 +253,24 @@ namespace PatientManagementSystem
             {
                 errorMessage = ex.Message;
                 return false;
+            }
+        }
+
+        // Transparently re-hashes a legacy password with PBKDF2 on successful login,
+        // so it never has to be verified against the weaker SHA256 hash again.
+        private static void UpgradeToPbkdf2(SQLiteConnection conn, string username, string password)
+        {
+            string newSalt = Guid.NewGuid().ToString("N");
+            string newHash = HashPassword(password, newSalt, DefaultIterations);
+
+            using (SQLiteCommand update = new SQLiteCommand(
+                "UPDATE Users SET PasswordHash = @h, Salt = @s, Iterations = @i WHERE Username = @u", conn))
+            {
+                update.Parameters.AddWithValue("@h", newHash);
+                update.Parameters.AddWithValue("@s", newSalt);
+                update.Parameters.AddWithValue("@i", DefaultIterations);
+                update.Parameters.AddWithValue("@u", username);
+                update.ExecuteNonQuery();
             }
         }
     }
@@ -281,11 +371,17 @@ namespace PatientManagementSystem
             mainTabControl.SizeMode = TabSizeMode.Fixed;
 
             // Create tabs
+            CreateDashboardTab();
             CreatePatientRegistrationTab();
             CreateAppointmentTab();
             CreatePrescriptionTab();
             CreateBillingTab();
             CreateReportsTab();
+
+            mainTabControl.SelectedIndexChanged += (s, e) => {
+                if (mainTabControl.SelectedTab?.Name == "dashboardTab")
+                    RefreshDashboard();
+            };
 
             this.Controls.Add(mainTabControl);
 
@@ -347,6 +443,200 @@ namespace PatientManagementSystem
             }
 
             connection.Close();
+        }
+
+        // DASHBOARD TAB
+        private void CreateDashboardTab()
+        {
+            TabPage dashboardTab = new TabPage("Dashboard");
+            dashboardTab.Name = "dashboardTab";
+            dashboardTab.BackColor = Color.White;
+
+            Panel mainPanel = new Panel();
+            mainPanel.Dock = DockStyle.Fill;
+            mainPanel.Padding = new Padding(20);
+            mainPanel.AutoScroll = true;
+
+            // Summary Cards
+            Panel summaryPanel = new Panel();
+            summaryPanel.Size = new Size(800, 100);
+            summaryPanel.Location = new Point(10, 10);
+
+            var (appointmentsCard, lblAppointmentsValue) = CreateDashboardCard("Today's Appointments", "0", Color.FromArgb(40, 167, 69));
+            appointmentsCard.Location = new Point(0, 0);
+            lblAppointmentsValue.Name = "lblDashTodayAppointments";
+
+            var (pendingBillsCard, lblPendingBillsValue) = CreateDashboardCard("Pending Bills", "0", Color.FromArgb(255, 193, 7));
+            pendingBillsCard.Location = new Point(200, 0);
+            lblPendingBillsValue.Name = "lblDashPendingBills";
+
+            var (revenueCard, lblRevenueValue) = CreateDashboardCard("Revenue This Month", "₹0.00", Color.FromArgb(220, 53, 69));
+            revenueCard.Location = new Point(400, 0);
+            lblRevenueValue.Name = "lblDashMonthRevenue";
+
+            Button btnRefreshDashboard = new Button() { Text = "Refresh", Location = new Point(630, 10), Size = new Size(160, 35) };
+            btnRefreshDashboard.BackColor = Color.FromArgb(0, 123, 255);
+            btnRefreshDashboard.ForeColor = Color.White;
+            btnRefreshDashboard.FlatStyle = FlatStyle.Flat;
+            btnRefreshDashboard.Click += (s, e) => RefreshDashboard();
+
+            summaryPanel.Controls.AddRange(new Control[] { appointmentsCard, pendingBillsCard, revenueCard, btnRefreshDashboard });
+
+            // Today's Appointments
+            GroupBox appointmentsGroup = new GroupBox(); appointmentsGroup.Text = "Today's Appointments";
+            appointmentsGroup.Size = new Size(800, 250);
+            appointmentsGroup.Location = new Point(10, 120);
+            appointmentsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+
+            DataGridView dgvDashAppointments = new DataGridView() {
+                Name = "dgvDashTodayAppointments",
+                Location = new Point(15, 30),
+                Size = new Size(770, 205)
+            };
+            dgvDashAppointments.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            dgvDashAppointments.ReadOnly = true;
+            appointmentsGroup.Controls.Add(dgvDashAppointments);
+
+            // Pending Bills
+            GroupBox pendingBillsGroup = new GroupBox(); pendingBillsGroup.Text = "Pending Bills";
+            pendingBillsGroup.Size = new Size(800, 250);
+            pendingBillsGroup.Location = new Point(10, 380);
+            pendingBillsGroup.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+
+            DataGridView dgvDashPendingBills = new DataGridView() {
+                Name = "dgvDashPendingBills",
+                Location = new Point(15, 30),
+                Size = new Size(770, 205)
+            };
+            dgvDashPendingBills.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            dgvDashPendingBills.ReadOnly = true;
+            pendingBillsGroup.Controls.Add(dgvDashPendingBills);
+
+            mainPanel.Controls.AddRange(new Control[] { summaryPanel, appointmentsGroup, pendingBillsGroup });
+            dashboardTab.Controls.Add(mainPanel);
+            mainTabControl.TabPages.Add(dashboardTab);
+
+            RefreshDashboard();
+        }
+
+        private (Panel, Label) CreateDashboardCard(string title, string value, Color color)
+        {
+            Panel card = new Panel();
+            card.Size = new Size(190, 80);
+            card.BackColor = color;
+
+            Label lblTitle = new Label() {
+                Text = title,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 9F),
+                Location = new Point(10, 10),
+                Size = new Size(170, 20)
+            };
+
+            Label lblValue = new Label() {
+                Text = value,
+                ForeColor = Color.White,
+                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
+                Location = new Point(10, 35),
+                Size = new Size(170, 30)
+            };
+
+            card.Controls.AddRange(new Control[] { lblTitle, lblValue });
+            return (card, lblValue);
+        }
+
+        private void RefreshDashboard()
+        {
+            Label lblAppointments = FindControlsRecursive(mainTabControl, c => c.Name == "lblDashTodayAppointments").FirstOrDefault() as Label;
+            if (lblAppointments != null) lblAppointments.Text = GetTodayAppointments().ToString();
+
+            Label lblPendingBills = FindControlsRecursive(mainTabControl, c => c.Name == "lblDashPendingBills").FirstOrDefault() as Label;
+            if (lblPendingBills != null) lblPendingBills.Text = GetPendingBills().ToString();
+
+            Label lblMonthRevenue = FindControlsRecursive(mainTabControl, c => c.Name == "lblDashMonthRevenue").FirstOrDefault() as Label;
+            if (lblMonthRevenue != null) lblMonthRevenue.Text = $"₹{GetMonthRevenue():F2}";
+
+            DataGridView dgvAppointments = FindControlsRecursive(mainTabControl, c => c.Name == "dgvDashTodayAppointments").FirstOrDefault() as DataGridView;
+            if (dgvAppointments != null) LoadDashboardTodayAppointments(dgvAppointments);
+
+            DataGridView dgvPendingBills = FindControlsRecursive(mainTabControl, c => c.Name == "dgvDashPendingBills").FirstOrDefault() as DataGridView;
+            if (dgvPendingBills != null) LoadDashboardPendingBills(dgvPendingBills);
+        }
+
+        private void LoadDashboardTodayAppointments(DataGridView dgv)
+        {
+            try
+            {
+                connection.Open();
+                string query = @"SELECT a.AppointmentID, p.FirstName || ' ' || p.LastName as PatientName,
+                    a.DoctorName, a.AppointmentTime, a.Department, a.Status
+                    FROM Appointments a
+                    JOIN Patients p ON a.PatientID = p.PatientID
+                    WHERE DATE(a.AppointmentDate) = DATE('now')
+                    ORDER BY a.AppointmentTime";
+
+                using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
+                {
+                    DataTable dt = new DataTable();
+                    adapter.Fill(dt);
+                    dgv.DataSource = dt;
+                }
+                connection.Close();
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error loading today's appointments: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void LoadDashboardPendingBills(DataGridView dgv)
+        {
+            try
+            {
+                connection.Open();
+                string query = @"SELECT b.BillID, p.FirstName || ' ' || p.LastName as PatientName,
+                    b.ServiceDescription, b.Amount, b.DueDate
+                    FROM Billing b
+                    JOIN Patients p ON b.PatientID = p.PatientID
+                    WHERE b.PaymentStatus = 'Pending'
+                    ORDER BY b.DueDate";
+
+                using (SQLiteDataAdapter adapter = new SQLiteDataAdapter(query, connection))
+                {
+                    DataTable dt = new DataTable();
+                    adapter.Fill(dt);
+                    dgv.DataSource = dt;
+                }
+                connection.Close();
+            }
+            catch (Exception ex)
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                MessageBox.Show($"Error loading pending bills: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private decimal GetMonthRevenue()
+        {
+            try
+            {
+                connection.Open();
+                using (SQLiteCommand cmd = new SQLiteCommand("SELECT COALESCE(SUM(Amount), 0) FROM Billing WHERE strftime('%Y-%m', BillDate) = strftime('%Y-%m', 'now') AND PaymentStatus = 'Paid'", connection))
+                {
+                    decimal revenue = Convert.ToDecimal(cmd.ExecuteScalar());
+                    connection.Close();
+                    return revenue;
+                }
+            }
+            catch
+            {
+                if (connection.State == ConnectionState.Open)
+                    connection.Close();
+                return 0;
+            }
         }
 
         // PATIENT REGISTRATION TAB
@@ -912,6 +1202,12 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                if (dtpDOB.Value.Date > DateTime.Today)
+                {
+                    MessageBox.Show("Date of birth cannot be in the future.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
                 connection.Open();
                 string query = @"INSERT INTO Patients
                     (FirstName, LastName, DateOfBirth, Gender, PhoneNumber, Email, Address, EmergencyContact, BloodGroup, MedicalHistory)
@@ -1046,6 +1342,8 @@ namespace PatientManagementSystem
 
             DataGridView dgvBills = FindControlsRecursive(mainTabControl, c => c.Name == "dgvBills").FirstOrDefault() as DataGridView;
             if (dgvBills != null) LoadBills(dgvBills);
+
+            RefreshDashboard();
         }
 
         private void LogAudit(string action, string details)
@@ -1149,6 +1447,13 @@ namespace PatientManagementSystem
                     cmbDepartment.SelectedIndex == -1 || cmbAppTime.SelectedIndex == -1)
                 {
                     MessageBox.Show("Please fill in all required fields.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (DateTime.TryParse($"{dtpAppDate.Value.Date:yyyy-MM-dd} {cmbAppTime.Text}", out DateTime appointmentDateTime)
+                    && appointmentDateTime < DateTime.Now)
+                {
+                    MessageBox.Show("Please choose an appointment date and time that hasn't already passed.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
@@ -1346,6 +1651,12 @@ namespace PatientManagementSystem
                     return;
                 }
 
+                if (dtpFollowUp.Value.Date < DateTime.Today)
+                {
+                    MessageBox.Show("Follow-up date cannot be in the past.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
                 connection.Open();
                 string query = @"INSERT INTO Prescriptions
                     (PatientID, DoctorName, PrescriptionDate, Diagnosis, Medicines, Instructions, FollowUpDate)
@@ -1536,6 +1847,12 @@ namespace PatientManagementSystem
                 if (cmbPatient.SelectedIndex == -1 || string.IsNullOrWhiteSpace(txtService.Text) || numAmount.Value <= 0)
                 {
                     MessageBox.Show("Please fill in all required fields.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (dtpDueDate.Value.Date < DateTime.Today)
+                {
+                    MessageBox.Show("Due date cannot be in the past.", "Validation Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
 
