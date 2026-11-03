@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<style>body{margin:0}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>JEE Question Log</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: graph-paper desk. Summary strip, then log form beside charts, then chapter ledger and session list. */
+:root {
+  --bg: #eef2f8;
+  --paper: #ffffff;
+  --ink: #142238;
+  --muted: #5a6a81;
+  --line: #d5deeb;
+  --grid: rgba(47, 91, 211, 0.07);
+  --chip: #edf1f9;
+  --accent: #2f5bd3;
+  --accent-ink: #ffffff;
+  --phy: #5b5bd6;
+  --chem: #0d988b;
+  --math: #d47a22;
+  --good: #1f8a4c;
+  --warn: #a8700f;
+  --bad: #c43d3d;
+  --shadow: 0 1px 2px rgba(20, 34, 56, 0.06), 0 4px 16px rgba(20, 34, 56, 0.05);
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0d1420; --paper: #141e2e; --ink: #e5ebf4; --muted: #92a2b9; --line: #263449;
+    --grid: rgba(125, 156, 255, 0.05); --chip: #1b2840; --accent: #7d9cff; --accent-ink: #0d1420;
+    --phy: #9393f2; --chem: #3cc6b6; --math: #f0a458; --good: #4cc27e; --warn: #e3b04b; --bad: #ef6b6b;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0d1420; --paper: #141e2e; --ink: #e5ebf4; --muted: #92a2b9; --line: #263449;
+  --grid: rgba(125, 156, 255, 0.05); --chip: #1b2840; --accent: #7d9cff; --accent-ink: #0d1420;
+  --phy: #9393f2; --chem: #3cc6b6; --math: #f0a458; --good: #4cc27e; --warn: #e3b04b; --bad: #ef6b6b;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--ink);
+  font: 15px/1.5 var(--f-body);
+}
+.wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 24px 64px;
+  display: grid;
+  gap: 20px;
+}
+h1, h2, h3 { font-family: var(--f-display); margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: clamp(1.7rem, 4vw, 2.4rem); font-weight: 800; line-height: 1.1; }
+h2 { font-size: 1.12rem; font-weight: 600; }
+.eyebrow { font: 500 0.72rem/1.2 var(--f-mono); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+button, input, select, textarea { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+.top { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px; }
+.top .titles { display: grid; gap: 6px; min-width: 0; }
+.status { display: inline-flex; align-items: center; gap: 8px; font-size: 0.82rem; color: var(--muted); background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; }
+.status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--warn); }
+.status.cloud::before { background: var(--good); }
+
+.banner { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; background: var(--chip); border: 1px dashed var(--accent); border-radius: 10px; padding: 10px 14px; font-size: 0.9rem; }
+
+/* summary strip */
+.summary { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.tile { background: var(--paper); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: grid; gap: 4px; align-content: start; min-width: 0; }
+.tile .val { font: 600 1.7rem/1.1 var(--f-mono); font-variant-numeric: tabular-nums; }
+.tile .val small { font-size: 0.9rem; color: var(--muted); font-weight: 400; }
+.tile .sub { font-size: 0.8rem; color: var(--muted); }
+.today { grid-template-columns: auto 1fr; align-items: center; column-gap: 14px; }
+.today .ring { grid-row: span 3; }
+.ring circle { fill: none; stroke-width: 7; }
+.ring .track { stroke: var(--chip); }
+.ring .fill { stroke: var(--accent); stroke-linecap: round; transform: rotate(-90deg); transform-origin: 50% 50%; transition: stroke-dashoffset 0.5s ease; }
+.ring.done .fill { stroke: var(--good); }
+
+/* main grid */
+.main { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 20px; align-items: start; }
+.stack { display: grid; gap: 20px; min-width: 0; }
+.panel { background: var(--paper); border: 1px solid var(--line); border-radius: 14px; padding: 18px; display: grid; gap: 14px; min-width: 0; box-shadow: var(--shadow); }
+.panel-head { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; justify-content: space-between; }
+
+/* form */
+form { display: grid; gap: 14px; }
+.field { display: grid; gap: 6px; min-width: 0; }
+.field > label, .field > .lbl { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+.row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+input[type="text"], input[type="number"], input[type="date"], textarea, select {
+  width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; min-height: 40px;
+}
+input[type="number"] { font-family: var(--f-mono); }
+textarea { resize: vertical; min-height: 40px; }
+input:focus, textarea:focus, select:focus { border-color: var(--accent); outline: none; box-shadow: 0 0 0 3px var(--grid); }
+
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg label { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 6px; cursor: pointer; font-weight: 500; font-size: 0.9rem; background: var(--bg); }
+.seg label .dot { width: 9px; height: 9px; border-radius: 50%; }
+.seg input:checked + label { border-color: currentColor; background: var(--chip); }
+.seg input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+.seg .phy { color: var(--phy); } .seg .chem { color: var(--chem); } .seg .math { color: var(--math); }
+.seg label span.t { color: var(--ink); }
+
+/* OMR bubbles for question type */
+.omr { display: flex; flex-wrap: wrap; gap: 8px; }
+.omr input { position: absolute; opacity: 0; pointer-events: none; }
+.omr label { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; font-size: 0.84rem; padding: 4px 10px 4px 5px; border-radius: 999px; border: 1px solid var(--line); background: var(--bg); }
+.omr label .b { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--muted); display: inline-block; transition: background 0.15s; }
+.omr input:checked + label { border-color: var(--accent); }
+.omr input:checked + label .b { background: var(--ink); border-color: var(--ink); box-shadow: inset 0 0 0 3px var(--paper); }
+.omr input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.btn { border: 1px solid var(--line); background: var(--paper); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 500; min-height: 38px; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; min-height: 44px; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.small { padding: 4px 10px; min-height: 30px; font-size: 0.82rem; }
+.btn.danger { color: var(--bad); }
+.err { color: var(--bad); font-size: 0.85rem; min-height: 1.2em; }
+.hint { font-size: 0.78rem; color: var(--muted); }
+
+/* chart */
+.chart-box { overflow-x: auto; }
+.chart { width: 100%; min-width: 480px; height: auto; display: block; }
+.chart .axis { fill: var(--muted); font: 11px var(--f-mono); }
+.chart .gridline { stroke: var(--line); stroke-width: 1; }
+.chart .goal { stroke: var(--ink); stroke-width: 1; stroke-dasharray: 4 4; opacity: 0.6; }
+.chart .goal-l { fill: var(--ink); font: 11px var(--f-mono); opacity: 0.75; }
+.chart .today-l { fill: var(--accent); font: 600 11px var(--f-mono); }
+.f-phy { fill: var(--phy); } .f-chem { fill: var(--chem); } .f-math { fill: var(--math); } .f-empty { fill: var(--chip); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.82rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.bg-phy { background: var(--phy); } .bg-chem { background: var(--chem); } .bg-math { background: var(--math); }
+
+.duo { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.bars { display: grid; gap: 12px; }
+.bar-row { display: grid; gap: 5px; }
+.bar-row .top-line { display: flex; justify-content: space-between; gap: 8px; font-size: 0.88rem; }
+.bar-row .top-line b { font-weight: 600; }
+.meter { height: 8px; border-radius: 999px; background: var(--chip); overflow: hidden; }
+.meter i { display: block; height: 100%; border-radius: inherit; }
+.c-good { color: var(--good); } .c-warn { color: var(--warn); } .c-bad { color: var(--bad); }
+.m-good { background: var(--good); } .m-warn { background: var(--warn); } .m-bad { background: var(--bad); }
+
+/* chapter ledger */
+.filters { display: flex; flex-wrap: wrap; gap: 6px; }
+.chipbtn { border: 1px solid var(--line); background: var(--bg); border-radius: 999px; padding: 4px 12px; cursor: pointer; font-size: 0.82rem; }
+.chipbtn[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.table-box { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.88rem; min-width: 560px; }
+th { text-align: left; font: 500 0.7rem/1.2 var(--f-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+td.n, th.n { text-align: right; font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.subj { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; white-space: nowrap; }
+.subj .dot { width: 8px; height: 8px; border-radius: 50%; }
+.pill { display: inline-block; font-size: 0.74rem; font-weight: 600; padding: 2px 9px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.acc-cell { display: grid; grid-template-columns: 3.2em 60px; gap: 8px; align-items: center; justify-content: end; }
+.empty { color: var(--muted); font-size: 0.9rem; padding: 12px 0; }
+
+/* sessions */
+.sessions { display: grid; gap: 0; }
+.sess { display: grid; grid-template-columns: 6.5em minmax(0, 1fr) auto; gap: 4px 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.sess:last-child { border-bottom: 0; }
+.sess .d { font: 0.8rem var(--f-mono); color: var(--muted); }
+.sess .what { min-width: 0; display: grid; gap: 2px; }
+.sess .what .t { font-weight: 600; overflow-wrap: anywhere; }
+.sess .what .s { font-size: 0.8rem; color: var(--muted); overflow-wrap: anywhere; }
+.sess .r { display: flex; align-items: center; gap: 10px; justify-content: end; }
+.sess .score { font: 500 0.9rem var(--f-mono); white-space: nowrap; }
+
+/* settings */
+.settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; align-items: end; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.toast { position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%) translateY(20px); opacity: 0; background: var(--ink); color: var(--paper); padding: 10px 16px; border-radius: 10px; font-size: 0.9rem; transition: opacity 0.2s, transform 0.2s; pointer-events: none; max-width: calc(100% - 32px); z-index: 20; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 980px) {
+  .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .main { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 620px) {
+  .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary .today { grid-column: 1 / -1; }
+  .duo { grid-template-columns: minmax(0, 1fr); }
+  .sess { grid-template-columns: minmax(0, 1fr) auto; }
+  .sess .d { grid-column: 1 / -1; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="titles">
+      <span class="eyebrow">JEE Advanced · daily practice</span>
+      <h1>JEE Question Log</h1>
+    </div>
+    <span id="status" class="status" role="status">Saved in this browser</span>
+  </header>
+
+  <div id="demoBanner" class="banner" hidden>
+    <span><b>These are example entries.</b> Log your first set of questions and the example data disappears.</span>
+  </div>
+
+  <section class="summary" aria-label="Summary">
+    <div class="tile today">
+      <svg class="ring" id="ring" width="64" height="64" viewBox="0 0 64 64" aria-hidden="true">
+        <circle class="track" cx="32" cy="32" r="27"></circle>
+        <circle class="fill" id="ringFill" cx="32" cy="32" r="27" stroke-dasharray="169.6" stroke-dashoffset="169.6"></circle>
+      </svg>
+      <span class="eyebrow">Today</span>
+      <span class="val" id="sToday">0 <small>/ 40</small></span>
+      <span class="sub" id="sTodaySub">questions toward your daily goal</span>
+    </div>
+    <div class="tile"><span class="eyebrow">Streak</span><span class="val" id="sStreak">0 <small>days</small></span><span class="sub" id="sStreakSub">days in a row with practice</span></div>
+    <div class="tile"><span class="eyebrow">Solved</span><span class="val" id="sTotal">0</span><span class="sub" id="sTotalSub">questions in total</span></div>
+    <div class="tile"><span class="eyebrow">Accuracy</span><span class="val" id="sAcc">–</span><span class="sub" id="sAccSub">correct ÷ attempted</span></div>
+    <div class="tile"><span class="eyebrow">Exam in</span><span class="val" id="sExam">–</span><span class="sub" id="sExamSub">days</span></div>
+  </section>
+
+  <div class="main">
+    <section class="panel" aria-labelledby="logH">
+      <div class="panel-head"><h2 id="logH">Log a question set</h2></div>
+      <form id="logForm" novalidate>
+        <div class="field">
+          <span class="lbl" id="subjLbl">Subject</span>
+          <div class="seg" role="radiogroup" aria-labelledby="subjLbl">
+            <input type="radio" name="subject" id="sP" value="P" checked><label for="sP" class="phy"><span class="dot bg-phy"></span><span class="t">Physics</span></label>
+            <input type="radio" name="subject" id="sC" value="C"><label for="sC" class="chem"><span class="dot bg-chem"></span><span class="t">Chemistry</span></label>
+            <input type="radio" name="subject" id="sM" value="M"><label for="sM" class="math"><span class="dot bg-math"></span><span class="t">Maths</span></label>
+          </div>
+        </div>
+        <div class="field">
+          <label for="fChapter">Chapter</label>
+          <input type="text" id="fChapter" list="chapterList" placeholder="e.g. Rotational Mechanics" autocomplete="off">
+          <datalist id="chapterList"></datalist>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label for="fSource">Source</label>
+            <input type="text" id="fSource" list="sourceList" placeholder="Book or PYQ" autocomplete="off">
+            <datalist id="sourceList"></datalist>
+          </div>
+          <div class="field">
+            <label for="fDate">Date</label>
+            <input type="date" id="fDate">
+          </div>
+        </div>
+        <div class="field">
+          <span class="lbl" id="qtLbl">Question type</span>
+          <div class="omr" role="radiogroup" aria-labelledby="qtLbl" id="qtGroup"></div>
+        </div>
+        <div class="row">
+          <div class="field"><label for="fAtt">Attempted</label><input type="number" id="fAtt" min="1" max="999" inputmode="numeric" placeholder="20"></div>
+          <div class="field"><label for="fCor">Correct</label><input type="number" id="fCor" min="0" max="999" inputmode="numeric" placeholder="15"></div>
+          <div class="field"><label for="fMin">Minutes</label><input type="number" id="fMin" min="0" max="999" inputmode="numeric" placeholder="45"></div>
+        </div>
+        <div class="field">
+          <label for="fNote">Note <span class="muted" style="font-weight:400">(optional)</span></label>
+          <textarea id="fNote" rows="2" placeholder="Mistakes to revisit, Q numbers to retry…"></textarea>
+        </div>
+        <div class="err" id="formErr" aria-live="polite"></div>
+        <button type="submit" class="btn primary">Add to log</button>
+      </form>
+    </section>
+
+    <div class="stack">
+      <section class="panel" aria-labelledby="chartH">
+        <div class="panel-head">
+          <h2 id="chartH">Last 30 days</h2>
+          <div class="legend"><span><i class="sw bg-phy"></i>Physics</span><span><i class="sw bg-chem"></i>Chemistry</span><span><i class="sw bg-math"></i>Maths</span><span class="muted">– – daily goal</span></div>
+        </div>
+        <div class="chart-box" id="chart"></div>
+        <div class="hint" id="chartNote"></div>
+      </section>
+
+      <div class="duo">
+        <section class="panel" aria-labelledby="subjH">
+          <h2 id="subjH">By subject</h2>
+          <div class="bars" id="subjBars"></div>
+        </section>
+        <section class="panel" aria-labelledby="qtH">
+          <div class="panel-head"><h2 id="qtH">Accuracy by question type</h2></div>
+          <div class="bars" id="qtBars"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+  <section class="panel" aria-labelledby="chapH">
+    <div class="panel-head">
+      <h2 id="chapH">Chapters</h2>
+      <div class="filters" id="chapFilters">
+        <button type="button" class="chipbtn" data-f="all" aria-pressed="true">All</button>
+        <button type="button" class="chipbtn" data-f="P" aria-pressed="false">Physics</button>
+        <button type="button" class="chipbtn" data-f="C" aria-pressed="false">Chemistry</button>
+        <button type="button" class="chipbtn" data-f="M" aria-pressed="false">Maths</button>
+        <button type="button" class="chipbtn" data-f="weak" aria-pressed="false">Needs work</button>
+      </div>
+    </div>
+    <div class="table-box" id="chapTable"></div>
+    <div class="hint">Needs work: accuracy under 60% across at least 10 questions. Rusty: not practised for 14 days or more.</div>
+  </section>
+
+  <section class="panel" aria-labelledby="sessH">
+    <div class="panel-head"><h2 id="sessH">Recent sessions</h2><span class="muted" id="sessCount"></span></div>
+    <div class="sessions" id="sessions"></div>
+    <div><button type="button" class="btn small" id="moreBtn" hidden>Show all sessions</button></div>
+  </section>
+
+  <section class="panel" aria-labelledby="setH">
+    <h2 id="setH">Settings and backup</h2>
+    <div class="settings">
+      <div class="field"><label for="setGoal">Daily goal (questions)</label><input type="number" id="setGoal" min="1" max="500"></div>
+      <div class="field"><label for="setExam">JEE Advanced exam date</label><input type="date" id="setExam"></div>
+      <div class="field">
+        <span class="lbl">Backup</span>
+        <div class="actions">
+          <button type="button" class="btn small" id="expJson">Export backup (.json)</button>
+          <button type="button" class="btn small" id="expCsv">Export spreadsheet (.csv)</button>
+          <button type="button" class="btn small" id="impBtn">Import backup</button>
+          <input type="file" id="impFile" accept=".json,application/json" class="sr" tabindex="-1">
+        </div>
+      </div>
+    </div>
+    <textarea id="copyBox" rows="4" readonly hidden aria-label="Exported data"></textarea>
+    <div class="hint" id="storeHint"></div>
+  </section>
+</div>
+<div class="toast" id="toast" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- reference data ---------- */
+  var SUBJ = {
+    P: { name: "Physics", short: "Phy", cls: "phy" },
+    C: { name: "Chemistry", short: "Chem", cls: "chem" },
+    M: { name: "Mathematics", short: "Maths", cls: "math" }
+  };
+  var SUBJ_ORDER = ["P", "C", "M"];
+  var QT = {
+    SCQ: "Single correct",
+    MCQ: "Multiple correct",
+    INT: "Integer / numerical",
+    PARA: "Paragraph",
+    MATCH: "Matrix match"
+  };
+  var CHAPTERS = {
+    P: ["Units & Dimensions", "Errors & Experimental Physics", "Kinematics", "Laws of Motion", "Work, Energy & Power", "Centre of Mass & Collisions", "Rotational Mechanics", "Gravitation", "Elasticity & Properties of Matter", "Fluid Mechanics", "Simple Harmonic Motion", "Waves & Sound", "Thermal Expansion & Calorimetry", "Heat Transfer", "Kinetic Theory & Thermodynamics", "Electrostatics", "Capacitors", "Current Electricity", "Magnetic Effects of Current", "Magnetism & Matter", "Electromagnetic Induction", "Alternating Current", "Ray Optics", "Wave Optics", "Modern Physics", "Nuclear Physics"],
+    C: ["Mole Concept", "Atomic Structure", "Periodic Table", "Chemical Bonding", "Gaseous State", "Chemical Thermodynamics", "Chemical Equilibrium", "Ionic Equilibrium", "Redox Reactions", "Solid State", "Solutions", "Electrochemistry", "Chemical Kinetics", "Surface Chemistry", "Hydrogen & s-Block", "p-Block Elements", "d & f Block Elements", "Coordination Compounds", "Metallurgy", "Qualitative Analysis", "General Organic Chemistry", "Isomerism", "Hydrocarbons", "Alkyl & Aryl Halides", "Alcohols, Phenols & Ethers", "Aldehydes & Ketones", "Carboxylic Acids & Derivatives", "Amines", "Biomolecules & Polymers"],
+    M: ["Sets, Relations & Functions", "Quadratic Equations", "Sequences & Series", "Complex Numbers", "Permutations & Combinations", "Binomial Theorem", "Probability", "Matrices & Determinants", "Trigonometric Ratios & Equations", "Inverse Trigonometry", "Properties of Triangles", "Straight Lines", "Circles", "Parabola", "Ellipse", "Hyperbola", "Limits", "Continuity & Differentiability", "Differentiation", "Application of Derivatives", "Indefinite Integration", "Definite Integration", "Area Under Curves", "Differential Equations", "Vectors", "3D Geometry", "Statistics"]
+  };
+  var SOURCES = ["JEE Advanced PYQ", "JEE Main PYQ", "Coaching module", "DPP", "Mock test", "Cengage", "Black Book", "H.C. Verma", "I.E. Irodov", "D.C. Pandey", "N. Avasthi", "M.S. Chouhan", "J.D. Lee", "O.P. Tandon", "NCERT Exemplar", "S.L. Loney"];
+
+  var DEFAULT_SETTINGS = { goal: 40, examDate: "2027-05-23" };
+  var LS_DATA = "jeeQuestionLog.v1";
+  var LS_PREFS = "jeeQuestionLog.prefs";
+
+  /* ---------- small utils ---------- */
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function lsGet(k) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage blocked */ } }
+  function iso(d) {
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  }
+  function todayIso() { return iso(new Date()); }
+  function addDays(s, n) { var p = s.split("-").map(Number); return iso(new Date(p[0], p[1] - 1, p[2] + n)); }
+  function dayDiff(a, b) {
+    var x = a.split("-").map(Number), y = b.split("-").map(Number);
+    return Math.round((Date.UTC(y[0], y[1] - 1, y[2]) - Date.UTC(x[0], x[1] - 1, x[2])) / 86400000);
+  }
+  function fmtDate(s) {
+    var p = s.split("-").map(Number);
+    return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  }
+  function fmtNum(n) { return Number(n).toLocaleString(); }
+  function pct(c, a) { return a > 0 ? Math.round((c / a) * 100) : null; }
+  function accClass(p) { return p == null ? "" : p >= 75 ? "good" : p >= 55 ? "warn" : "bad"; }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+  function clampInt(v, lo, hi) { v = parseInt(v, 10); if (isNaN(v)) return null; return Math.max(lo, Math.min(hi, v)); }
+
+  var toastTimer;
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2600);
+  }
+
+  /* ---------- state ---------- */
+  var state = { entries: [], settings: Object.assign({}, DEFAULT_SETTINGS) };
+  var mode = "local";          // "local" (this browser) or "cloud" (Claude artifact storage)
+  var cloud = null;            // { prof, logs }
+  var cloudLoaded = false;
+  var downloads = null;
+  var ui = { chapFilter: "all", showAll: false };
+
+  var saved = lsGet(LS_DATA);
+  if (saved && Array.isArray(saved.entries)) {
+    state.entries = saved.entries.filter(validEntry);
+    state.settings = Object.assign({}, DEFAULT_SETTINGS, saved.settings || {});
+  }
+  var prefs = lsGet(LS_PREFS) || {};
+
+  function validEntry(e) {
+    return e && typeof e === "object" && SUBJ[e.subject] && typeof e.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(e.date) &&
+      typeof e.attempted === "number" && e.attempted > 0 && typeof e.correct === "number";
+  }
+  function persistLocal() { lsSet(LS_DATA, { entries: state.entries, settings: state.settings }); }
+
+  /* ---------- example data (shown only while the log is empty) ---------- */
+  function demoEntries() {
+    var seed = 7;
+    function rnd() { seed = (seed * 16807) % 2147483647; return (seed - 1) / 2147483646; }
+    var t = todayIso(), out = [];
+    var srcs = ["JEE Advanced PYQ", "Cengage", "Coaching module", "H.C. Verma", "N. Avasthi", "Black Book", "DPP"];
+    var qts = Object.keys(QT);
+    for (var d = 24; d >= 0; d--) {
+      if (d === 9 || d === 17) continue;
+      var n = 2 + Math.floor(rnd() * 3);
+      for (var k = 0; k < n; k++) {
+        var s = SUBJ_ORDER[Math.floor(rnd() * 3)];
+        var chs = CHAPTERS[s].slice(0, 9);
+        var att = 8 + Math.floor(rnd() * 18);
+        var skill = s === "C" ? 0.58 : s === "P" ? 0.66 : 0.72;
+        var q = qts[Math.floor(rnd() * qts.length)];
+        if (q === "MCQ") skill -= 0.12;
+        out.push({
+          id: "demo" + d + "_" + k, date: addDays(t, -d), subject: s,
+          chapter: chs[Math.floor(rnd() * chs.length)], source: srcs[Math.floor(rnd() * srcs.length)],
+          qtype: q, attempted: att, correct: Math.max(0, Math.min(att, Math.round(att * (skill + (rnd() - 0.5) * 0.25)))),
+          minutes: Math.round(att * (2 + rnd() * 2)), note: "", createdAt: 0
+        });
+      }
+    }
+    return out;
+  }
+  var DEMO = demoEntries();
+
+  function viewEntries() {
+    var showDemo = state.entries.length === 0 && (mode === "local" || cloudLoaded);
+    $("demoBanner").hidden = !showDemo;
+    return showDemo ? DEMO : state.entries;
+  }
+
+  /* ---------- stats ---------- */
+  function computeStats(entries) {
+    var t = todayIso();
+    var byDay = {}, bySubj = {}, byQt = {}, chapters = {};
+    var total = 0, correct = 0, minutes = 0;
+    SUBJ_ORDER.forEach(function (s) { bySubj[s] = { a: 0, c: 0, m: 0 }; });
+    Object.keys(QT).forEach(function (q) { byQt[q] = { a: 0, c: 0 }; });
+    entries.forEach(function (e) {
+      total += e.attempted; correct += e.correct; minutes += e.minutes || 0;
+      var day = byDay[e.date] || (byDay[e.date] = { P: 0, C: 0, M: 0, all: 0 });
+      day[e.subject] += e.attempted; day.all += e.attempted;
+      bySubj[e.subject].a += e.attempted; bySubj[e.subject].c += e.correct; bySubj[e.subject].m += e.minutes || 0;
+      if (byQt[e.qtype]) { byQt[e.qtype].a += e.attempted; byQt[e.qtype].c += e.correct; }
+      var key = e.subject + "|" + (e.chapter || "Unspecified").trim().toLowerCase();
+      var ch = chapters[key] || (chapters[key] = { subject: e.subject, name: (e.chapter || "Unspecified").trim(), a: 0, c: 0, last: e.date, sessions: 0 });
+      ch.a += e.attempted; ch.c += e.correct; ch.sessions++;
+      if (e.date > ch.last) ch.last = e.date;
+    });
+    var streak = 0, d = t;
+    if (!(byDay[d] && byDay[d].all > 0)) d = addDays(d, -1);
+    while (byDay[d] && byDay[d].all > 0) { streak++; d = addDays(d, -1); }
+    var best = 0, run = 0, days = Object.keys(byDay).sort(), prev = null;
+    days.forEach(function (x) { run = prev && dayDiff(prev, x) === 1 ? run + 1 : 1; best = Math.max(best, run); prev = x; });
+    var goalDays = 0;
+    for (var i = 0; i < 30; i++) { var dd = addDays(t, -i); if (byDay[dd] && byDay[dd].all >= state.settings.goal) goalDays++; }
+    return {
+      today: byDay[t] ? byDay[t].all : 0, streak: streak, best: best, total: total, correct: correct, minutes: minutes,
+      activeDays: days.length, byDay: byDay, bySubj: bySubj, byQt: byQt, goalDays: goalDays,
+      chapters: Object.keys(chapters).map(function (k) { return chapters[k]; })
+    };
+  }
+
+  /* ---------- rendering ---------- */
+  function render() {
+    var entries = viewEntries();
+    var st = computeStats(entries);
+    renderSummary(st);
+    renderChart(st);
+    renderSubjects(st);
+    renderQtypes(st);
+    renderChapters(st);
+    renderSessions(entries);
+    renderSettings();
+  }
+
+  function renderSummary(st) {
+    var goal = state.settings.goal;
+    $("sToday").innerHTML = fmtNum(st.today) + " <small>/ " + fmtNum(goal) + "</small>";
+    var left = goal - st.today;
+    $("sTodaySub").textContent = left > 0 ? left + " more to hit today's goal" : "Daily goal reached";
+    var frac = Math.min(1, st.today / goal);
+    $("ringFill").setAttribute("stroke-dashoffset", (169.6 * (1 - frac)).toFixed(1));
+    $("ring").classList.toggle("done", frac >= 1);
+    $("sStreak").innerHTML = st.streak + " <small>" + (st.streak === 1 ? "day" : "days") + "</small>";
+    $("sStreakSub").textContent = "Best run: " + st.best + (st.best === 1 ? " day" : " days");
+    $("sTotal").textContent = fmtNum(st.total);
+    $("sTotalSub").textContent = "over " + st.activeDays + (st.activeDays === 1 ? " day" : " days") + " · " + Math.round(st.minutes / 60) + " h";
+    var a = pct(st.correct, st.total);
+    $("sAcc").innerHTML = a == null ? "–" : a + "<small>%</small>";
+    $("sAcc").className = "val" + (a == null ? "" : " c-" + accClass(a));
+    $("sAccSub").textContent = fmtNum(st.correct) + " correct of " + fmtNum(st.total);
+    var exam = state.settings.examDate;
+    if (exam && /^\d{4}-\d{2}-\d{2}$/.test(exam)) {
+      var n = dayDiff(todayIso(), exam);
+      $("sExam").innerHTML = n >= 0 ? n + " <small>days</small>" : "Done";
+      $("sExamSub").textContent = n >= 0 ? "until " + fmtDate(exam) + " " + exam.slice(0, 4) : "Exam date has passed";
+    } else { $("sExam").textContent = "–"; $("sExamSub").textContent = "Set the date in settings"; }
+  }
+
+  function niceMax(v) {
+    if (v <= 0) return 10;
+    var raw = v / 4, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    var step = [1, 2, 2.5, 5, 10].map(function (m) { return m * mag; }).find(function (s) { return s >= raw; });
+    step = Math.max(1, Math.ceil(step));
+    return step * 4;
+  }
+
+  function renderChart(st) {
+    var W = 640, H = 210, L = 34, R = 8, T = 14, B = 26;
+    var t = todayIso(), days = [];
+    for (var i = 29; i >= 0; i--) days.push(addDays(t, -i));
+    var max = 0;
+    days.forEach(function (d) { if (st.byDay[d]) max = Math.max(max, st.byDay[d].all); });
+    var goal = state.settings.goal;
+    var top = niceMax(Math.max(max, goal));
+    var ih = H - T - B, slot = (W - L - R) / 30, bw = Math.max(4, slot * 0.66);
+    function y(v) { return T + ih - (v / top) * ih; }
+    var s = '<svg class="chart" viewBox="0 0 ' + W + " " + H + '" role="img" aria-label="Questions solved per day over the last 30 days">';
+    for (var k = 0; k <= 4; k++) {
+      var v = (top / 4) * k, yy = y(v).toFixed(1);
+      s += '<line class="gridline" x1="' + L + '" x2="' + (W - R) + '" y1="' + yy + '" y2="' + yy + '"></line>';
+      s += '<text class="axis" x="' + (L - 6) + '" y="' + (+yy + 4) + '" text-anchor="end">' + Math.round(v) + "</text>";
+    }
+    days.forEach(function (d, idx) {
+      var x = L + idx * slot + (slot - bw) / 2, day = st.byDay[d], base = T + ih;
+      var tip = fmtDate(d) + ": " + (day ? day.all : 0) + " questions";
+      s += "<g><title>" + esc(tip + (day ? " (Phy " + day.P + ", Chem " + day.C + ", Maths " + day.M + ")" : "")) + "</title>";
+      if (!day) {
+        s += '<rect class="f-empty" x="' + x.toFixed(1) + '" y="' + (base - 2) + '" width="' + bw.toFixed(1) + '" height="2" rx="1"></rect>';
+      } else {
+        SUBJ_ORDER.forEach(function (sub) {
+          if (!day[sub]) return;
+          var h = (day[sub] / top) * ih;
+          base -= h;
+          s += '<rect class="f-' + SUBJ[sub].cls + '" x="' + x.toFixed(1) + '" y="' + base.toFixed(1) + '" width="' + bw.toFixed(1) + '" height="' + Math.max(1, h - 1).toFixed(1) + '" rx="2"></rect>';
+        });
+      }
+      s += "</g>";
+      if (idx === 29) s += '<text class="today-l" x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="end">Today</text>';
+      else if ((29 - idx) % 5 === 0 && idx < 27) s += '<text class="axis" x="' + (x + bw / 2).toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle">' + esc(fmtDate(d)) + "</text>";
+    });
+    var gy = y(goal).toFixed(1);
+    s += '<line class="goal" x1="' + L + '" x2="' + (W - R) + '" y1="' + gy + '" y2="' + gy + '"></line>';
+    s += '<text class="goal-l" x="' + (L + 4) + '" y="' + (+gy - 5) + '">goal ' + goal + "</text>";
+    s += "</svg>";
+    $("chart").innerHTML = s;
+    $("chartNote").textContent = "Goal reached on " + st.goalDays + " of the last 30 days.";
+  }
+
+  function renderSubjects(st) {
+    var maxA = 1;
+    SUBJ_ORDER.forEach(function (s) { maxA = Math.max(maxA, st.bySubj[s].a); });
+    $("subjBars").innerHTML = SUBJ_ORDER.map(function (s) {
+      var b = st.bySubj[s], p = pct(b.c, b.a);
+      return '<div class="bar-row"><div class="top-line"><b>' + SUBJ[s].name + '</b><span class="num">' + fmtNum(b.a) +
+        ' <span class="muted">· ' + (p == null ? "–" : '<span class="c-' + accClass(p) + '">' + p + "%</span>") + "</span></span></div>" +
+        '<div class="meter"><i class="bg-' + SUBJ[s].cls + '" style="width:' + ((b.a / maxA) * 100).toFixed(1) + '%"></i></div></div>';
+    }).join("") + '<div class="hint">Bar length: questions solved. Percentage: accuracy.</div>';
+  }
+
+  function renderQtypes(st) {
+    var rows = Object.keys(QT).map(function (q) {
+      var b = st.byQt[q], p = pct(b.c, b.a);
+      return '<div class="bar-row"><div class="top-line"><span>' + QT[q] + ' <span class="muted num">(' + b.a + ")</span></span>" +
+        '<b class="num ' + (p == null ? "muted" : "c-" + accClass(p)) + '">' + (p == null ? "–" : p + "%") + "</b></div>" +
+        '<div class="meter"><i class="m-' + (accClass(p) || "good") + '" style="width:' + (p || 0) + '%"></i></div></div>';
+    });
+    $("qtBars").innerHTML = rows.join("");
+  }
+
+  function chapterStatus(ch) {
+    var p = pct(ch.c, ch.a), since = dayDiff(ch.last, todayIso());
+    if (ch.a >= 10 && p < 60) return { key: "weak", label: "Needs work", cls: "c-bad" };
+    if (since >= 14) return { key: "rusty", label: "Rusty", cls: "c-warn" };
+    return { key: "ok", label: "On track", cls: "c-good" };
+  }
+
+  function renderChapters(st) {
+    var f = ui.chapFilter;
+    var list = st.chapters.filter(function (ch) {
+      if (f === "weak") return chapterStatus(ch).key === "weak";
+      return f === "all" || ch.subject === f;
+    }).sort(function (a, b) { return b.a - a.a; });
+    document.querySelectorAll("#chapFilters .chipbtn").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.f === f)); });
+    if (!list.length) {
+      $("chapTable").innerHTML = '<div class="empty">' + (f === "weak" ? "No weak chapters right now. Nothing under 60% with 10+ questions." : "No chapters logged for this subject yet.") + "</div>";
+      return;
+    }
+    var html = '<table><thead><tr><th>Chapter</th><th>Subject</th><th class="n">Solved</th><th class="n">Sessions</th><th class="n">Accuracy</th><th>Last practised</th><th>Status</th></tr></thead><tbody>';
+    list.forEach(function (ch) {
+      var p = pct(ch.c, ch.a), since = dayDiff(ch.last, todayIso()), stt = chapterStatus(ch);
+      html += "<tr><td>" + esc(ch.name) + '</td><td><span class="subj"><span class="dot bg-' + SUBJ[ch.subject].cls + '"></span>' + SUBJ[ch.subject].short + "</span></td>" +
+        '<td class="n">' + fmtNum(ch.a) + '</td><td class="n">' + ch.sessions + "</td>" +
+        '<td class="n"><span class="acc-cell"><span class="c-' + accClass(p) + '">' + p + '%</span><span class="meter"><i class="m-' + accClass(p) + '" style="width:' + p + '%"></i></span></span></td>' +
+        "<td>" + (since === 0 ? "Today" : since === 1 ? "Yesterday" : since + " days ago") + "</td>" +
+        '<td><span class="pill ' + stt.cls + '">' + stt.label + "</span></td></tr>";
+    });
+    $("chapTable").innerHTML = html + "</tbody></table>";
+  }
+
+  function renderSessions(entries) {
+    var sorted = entries.slice().sort(function (a, b) { return a.date === b.date ? (b.createdAt || 0) - (a.createdAt || 0) : a.date < b.date ? 1 : -1; });
+    var isDemo = entries === DEMO;
+    var shown = ui.showAll ? sorted : sorted.slice(0, 12);
+    $("sessCount").textContent = sorted.length + (sorted.length === 1 ? " session" : " sessions");
+    $("moreBtn").hidden = ui.showAll || sorted.length <= 12;
+    if (!shown.length) { $("sessions").innerHTML = '<div class="empty">No sessions yet.</div>'; return; }
+    $("sessions").innerHTML = shown.map(function (e) {
+      var p = pct(e.correct, e.attempted);
+      var meta = [e.source, QT[e.qtype], e.minutes ? e.minutes + " min" : ""].filter(Boolean).map(esc).join(" · ");
+      return '<div class="sess"><span class="d">' + esc(fmtDate(e.date)) + "</span>" +
+        '<div class="what"><span class="t"><span class="subj"><span class="dot bg-' + SUBJ[e.subject].cls + '"></span></span> ' + esc(e.chapter || "Unspecified") + "</span>" +
+        '<span class="s">' + SUBJ[e.subject].name + (meta ? " · " + meta : "") + "</span>" +
+        (e.note ? '<span class="s">“' + esc(e.note) + "”</span>" : "") + "</div>" +
+        '<div class="r"><span class="score">' + e.correct + "/" + e.attempted + ' <span class="c-' + accClass(p) + '">' + p + "%</span></span>" +
+        (isDemo ? "" : '<button type="button" class="btn small danger" data-del="' + esc(e.id) + '">Delete</button>') + "</div></div>";
+    }).join("");
+  }
+
+  function renderSettings() {
+    if (document.activeElement !== $("setGoal")) $("setGoal").value = state.settings.goal;
+    if (document.activeElement !== $("setExam")) $("setExam").value = state.settings.examDate || "";
+    var s = $("status");
+    if (mode === "cloud") {
+      s.textContent = cloudLoaded ? "Saved to your Claude account" : "Loading your log…";
+      s.classList.add("cloud");
+      $("storeHint").textContent = "Your log is private to you and syncs wherever you open this page while signed in.";
+    } else {
+      s.textContent = "Saved in this browser";
+      s.classList.remove("cloud");
+      $("storeHint").textContent = "Entries are stored in this browser only. Export a backup now and then, and import it on another device.";
+    }
+  }
+
+  /* ---------- form ---------- */
+  function currentSubject() { var r = document.querySelector('input[name="subject"]:checked'); return r ? r.value : "P"; }
+  function fillChapterList() {
+    var s = currentSubject(), own = {};
+    state.entries.forEach(function (e) { if (e.subject === s && e.chapter) own[e.chapter] = 1; });
+    var names = CHAPTERS[s].concat(Object.keys(own).filter(function (c) { return CHAPTERS[s].indexOf(c) < 0; }));
+    $("chapterList").innerHTML = names.map(function (c) { return '<option value="' + esc(c) + '"></option>'; }).join("");
+    $("fChapter").placeholder = "e.g. " + CHAPTERS[s][Math.min(6, CHAPTERS[s].length - 1)];
+  }
+  function fillSourceList() {
+    var own = {};
+    state.entries.forEach(function (e) { if (e.source) own[e.source] = 1; });
+    var names = Object.keys(own).concat(SOURCES.filter(function (x) { return !own[x]; }));
+    $("sourceList").innerHTML = names.map(function (c) { return '<option value="' + esc(c) + '"></option>'; }).join("");
+  }
+  $("qtGroup").innerHTML = Object.keys(QT).map(function (q, i) {
+    return '<input type="radio" name="qtype" id="qt' + q + '" value="' + q + '"' + (i === 0 ? " checked" : "") + '><label for="qt' + q + '"><span class="b"></span>' + QT[q] + "</label>";
+  }).join("");
+
+  if (prefs.subject && SUBJ[prefs.subject]) $("s" + prefs.subject).checked = true;
+  if (prefs.qtype && QT[prefs.qtype]) $("qt" + prefs.qtype).checked = true;
+  if (prefs.source) $("fSource").value = prefs.source;
+  $("fDate").value = todayIso();
+  fillChapterList(); fillSourceList();
+
+  document.querySelectorAll('input[name="subject"]').forEach(function (r) {
+    r.addEventListener("change", function () { fillChapterList(); $("fChapter").value = ""; });
+  });
+
+  $("logForm").addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var err = $("formErr");
+    var att = clampInt($("fAtt").value, 0, 999), cor = clampInt($("fCor").value, 0, 999), min = clampInt($("fMin").value, 0, 999);
+    var chapter = $("fChapter").value.trim(), date = $("fDate").value;
+    if (!chapter) { err.textContent = "Add the chapter so it shows up in your chapter list."; $("fChapter").focus(); return; }
+    if (!att) { err.textContent = "Enter how many questions you attempted (at least 1)."; $("fAtt").focus(); return; }
+    if (cor == null) { err.textContent = "Enter how many you got correct (0 is fine)."; $("fCor").focus(); return; }
+    if (cor > att) { err.textContent = "Correct can't be more than attempted."; $("fCor").focus(); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = "Pick the date you solved these."; $("fDate").focus(); return; }
+    if (date > todayIso()) { err.textContent = "The date can't be in the future."; $("fDate").focus(); return; }
+    err.textContent = "";
+    var qt = document.querySelector('input[name="qtype"]:checked');
+    var entry = {
+      id: uid(), date: date, subject: currentSubject(), chapter: chapter.slice(0, 80),
+      source: $("fSource").value.trim().slice(0, 60), qtype: qt ? qt.value : "SCQ",
+      attempted: att, correct: cor, minutes: min || 0, note: $("fNote").value.trim().slice(0, 300), createdAt: Date.now()
+    };
+    prefs = { subject: entry.subject, qtype: entry.qtype, source: entry.source };
+    lsSet(LS_PREFS, prefs);
+    addEntry(entry).then(function (ok) {
+      if (!ok) return;
+      $("fAtt").value = ""; $("fCor").value = ""; $("fMin").value = ""; $("fNote").value = "";
+      toast("Logged " + att + " " + SUBJ[entry.subject].name + " questions");
+      fillChapterList(); fillSourceList();
+      $("fAtt").focus();
+    });
+  });
+
+  /* ---------- storage operations ---------- */
+  function addEntry(entry) {
+    if (mode === "cloud" && cloud) {
+      return cloud.logs.doc(entry.id).set(entry).then(function () { return true; }, function (e) { return cloudFailed(e, function () { return addEntry(entry); }); });
+    }
+    state.entries.push(entry); persistLocal(); render();
+    return Promise.resolve(true);
+  }
+  function deleteEntry(id) {
+    if (mode === "cloud" && cloud) {
+      return cloud.logs.doc(id).delete().then(function () { toast("Session deleted"); }, function (e) { cloudFailed(e); });
+    }
+    state.entries = state.entries.filter(function (e) { return e.id !== id; });
+    persistLocal(); render(); toast("Session deleted");
+    return Promise.resolve();
+  }
+  function saveSettings() {
+    if (mode === "cloud" && cloud) {
+      return cloud.prof.set({ settings: state.settings }).then(render, function (e) { cloudFailed(e); });
+    }
+    persistLocal(); render();
+    return Promise.resolve();
+  }
+  // A write the account can't make (e.g. view-only access) falls back to this browser.
+  function cloudFailed(e, retry) {
+    var code = e && e.code;
+    if (code === "invalid_argument" || code === "not_granted" || code === "revoked" || code === "capability_disabled") {
+      switchToLocal("Couldn't save to your account here, so entries are now kept in this browser.");
+      return retry ? retry() : false;
+    }
+    if (code === "quota_exceeded") { toast("Storage is full. Export a backup and delete old sessions."); return false; }
+    toast("Couldn't save just now. Check your connection and try again.");
+    return false;
+  }
+  function switchToLocal(msg) {
+    if (unsubs) unsubs.forEach(function (u) { try { u(); } catch (x) {} });
+    unsubs = null; cloud = null; mode = "local"; cloudLoaded = false;
+    var savedLocal = lsGet(LS_DATA);
+    state.entries = savedLocal && Array.isArray(savedLocal.entries) ? savedLocal.entries.filter(validEntry) : state.entries;
+    if (msg) toast(msg);
+    render();
+  }
+
+  var unsubs = null;
+  function connectCloud() {
+    if (!window.claude || typeof window.claude.use !== "function") return;
+    window.claude.use("downloads").then(function (d) { downloads = d; }, function () {});
+    Promise.all([window.claude.use("db"), window.claude.use("user")]).then(function (r) {
+      var db = r[0], user = r[1];
+      if (!db || !user) return null;
+      return user.id().then(function (id) {
+        if (!id) return;
+        var prof = db.doc("data/users/" + id + "/profile");
+        cloud = { prof: prof, logs: prof.collection("logs") };
+        mode = "cloud"; cloudLoaded = false;
+        var localBefore = state.entries.slice();
+        state.entries = [];
+        render();
+        var slow = setTimeout(function () {
+          if (!cloudLoaded) $("status").textContent = "Can't reach your saved log yet. Still trying…";
+        }, 10000);
+        unsubs = [];
+        unsubs.push(cloud.logs.onSnapshot(function (snap) {
+          state.entries = snap.docs.map(function (d) { var x = Object.assign({}, d.data()); x.id = d.id; return x; }).filter(validEntry);
+          if (!snap.metadata.fromCache && !cloudLoaded) {
+            cloudLoaded = true; clearTimeout(slow);
+            if (snap.empty && localBefore.length) migrate(localBefore);
+          }
+          fillChapterList(); fillSourceList();
+          render();
+        }, function () {
+          clearTimeout(slow);
+          switchToLocal("Your saved log isn't available here, so entries are kept in this browser.");
+        }));
+        unsubs.push(prof.onSnapshot(function (s) {
+          if (s.exists && s.data().settings) state.settings = Object.assign({}, DEFAULT_SETTINGS, s.data().settings);
+          render();
+        }, function () {}));
+      });
+    }).catch(function () { /* stay local */ });
+  }
+  // Move entries made in this browser into the account once, when the account log is empty.
+  function migrate(list) {
+    var i = 0;
+    (function next() {
+      if (i >= list.length || !cloud) { if (cloud) toast("Moved " + list.length + " sessions from this browser to your account"); return; }
+      var e = list[i++];
+      cloud.logs.doc(e.id).set(e).then(next, function () {});
+    })();
+  }
+
+  /* ---------- interactions ---------- */
+  var pendingDel = null, pendingTimer;
+  $("sessions").addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-del]");
+    if (!b) return;
+    var id = b.getAttribute("data-del");
+    if (pendingDel === id) { pendingDel = null; clearTimeout(pendingTimer); deleteEntry(id); return; }
+    document.querySelectorAll("[data-del]").forEach(function (x) { x.textContent = "Delete"; });
+    pendingDel = id; b.textContent = "Tap to confirm";
+    clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(function () { pendingDel = null; b.textContent = "Delete"; }, 3500);
+  });
+  $("moreBtn").addEventListener("click", function () { ui.showAll = true; render(); });
+  $("chapFilters").addEventListener("click", function (ev) {
+    var b = ev.target.closest("[data-f]"); if (!b) return;
+    ui.chapFilter = b.dataset.f; render();
+  });
+  $("setGoal").addEventListener("change", function () {
+    var g = clampInt(this.value, 1, 500);
+    if (!g || g === state.settings.goal) { this.value = state.settings.goal; return; }
+    state.settings.goal = g; saveSettings(); toast("Daily goal set to " + g);
+  });
+  $("setExam").addEventListener("change", function () {
+    if (this.value === state.settings.examDate) return;
+    state.settings.examDate = this.value; saveSettings();
+  });
+
+  function exportData(kind) {
+    var stamp = todayIso(), filename, text;
+    if (kind === "json") {
+      filename = "jee-question-log-" + stamp + ".json";
+      text = JSON.stringify({ app: "jee-question-log", version: 1, exportedAt: new Date().toISOString(), settings: state.settings, entries: state.entries }, null, 2);
+    } else {
+      filename = "jee-question-log-" + stamp + ".csv";
+      var cols = ["date", "subject", "chapter", "source", "question_type", "attempted", "correct", "accuracy_pct", "minutes", "note"];
+      var q = function (v) { v = String(v == null ? "" : v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+      text = cols.join(",") + "\n" + state.entries.slice().sort(function (a, b) { return a.date < b.date ? -1 : 1; }).map(function (e) {
+        return [e.date, SUBJ[e.subject].name, e.chapter, e.source, QT[e.qtype] || e.qtype, e.attempted, e.correct, pct(e.correct, e.attempted), e.minutes, e.note].map(q).join(",");
+      }).join("\n");
+    }
+    if (!state.entries.length) { toast("Nothing to export yet. Log a session first."); return; }
+    if (downloads) {
+      downloads.save({ filename: filename, data: text }).then(function () { toast("Saved " + filename); }, function (e) {
+        if (e && e.code === "declined") return;
+        copyFallback(text);
+      });
+      return;
+    }
+    if (!window.claude) {
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob([text], { type: kind === "json" ? "application/json" : "text/csv" }));
+      a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+      return;
+    }
+    copyFallback(text);
+  }
+  function copyFallback(text) {
+    var box = $("copyBox");
+    box.hidden = false; box.value = text;
+    var p = navigator.clipboard && navigator.clipboard.writeText ? navigator.clipboard.writeText(text) : Promise.reject();
+    p.then(function () { toast("Copied to clipboard. Paste it into a file to keep it."); }, function () {
+      box.focus(); box.select(); toast("Select the text below and copy it.");
+    });
+  }
+  $("expJson").addEventListener("click", function () { exportData("json"); });
+  $("expCsv").addEventListener("click", function () { exportData("csv"); });
+  $("impBtn").addEventListener("click", function () { $("impFile").click(); });
+  $("impFile").addEventListener("change", function () {
+    var f = this.files && this.files[0]; this.value = "";
+    if (!f) return;
+    var rd = new FileReader();
+    rd.onload = function () {
+      var data;
+      try { data = JSON.parse(rd.result); } catch (e) { toast("That file isn't a JSON backup from this app."); return; }
+      var list = (data && Array.isArray(data.entries) ? data.entries : []).filter(validEntry).slice(0, 5000);
+      var have = {};
+      state.entries.forEach(function (e) { have[e.id] = 1; });
+      var fresh = list.filter(function (e) { return e.id && !have[e.id]; });
+      if (!fresh.length) { toast("No new sessions in that backup."); return; }
+      if (data.settings && !state.entries.length) state.settings = Object.assign({}, DEFAULT_SETTINGS, data.settings);
+      if (mode === "cloud" && cloud) {
+        var i = 0;
+        (function next() {
+          if (i >= fresh.length) { saveSettings(); toast("Imported " + fresh.length + " sessions"); return; }
+          var e = fresh[i++];
+          cloud.logs.doc(String(e.id)).set(e).then(next, function (err) { cloudFailed(err); });
+        })();
+      } else {
+        state.entries = state.entries.concat(fresh); persistLocal(); fillChapterList(); fillSourceList(); render();
+        toast("Imported " + fresh.length + " sessions");
+      }
+    };
+    rd.readAsText(f);
+  });
+
+  render();
+  connectCloud();
+})();
+</script>
+
+</body>
+</html>
