@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="theme-color" content="#000000">
+  <title>Screen Share</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="viewer">
+  <video id="video" autoplay muted playsinline></video>
+
+  <div id="pinBox" class="overlay" hidden>
+    <h1>Enter PIN</h1>
+    <div class="muted">It is shown on the PC that is sharing.</div>
+    <form id="pinForm">
+      <input id="pin" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" aria-label="PIN">
+      <div style="margin-top:16px"><button>Join</button></div>
+    </form>
+    <div id="pinErr" class="err" hidden>Wrong PIN, try again.</div>
+  </div>
+
+  <div id="wait" class="overlay">
+    <h1 id="waitTitle">Connecting…</h1>
+    <div id="waitText" class="muted"></div>
+  </div>
+
+  <div id="bar" class="bar" hidden>
+    <button id="sound" class="ghost" hidden>Tap for sound</button>
+    <button id="full" class="ghost">Full screen</button>
+  </div>
+  <script src="/view.js"></script>
+</body>
+</html>

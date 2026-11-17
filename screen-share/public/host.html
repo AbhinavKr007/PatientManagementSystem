@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Screen Share – Host</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="host">
+    <h1>Screen Share</h1>
+    <div class="muted">Share this PC's screen with iPads, Android devices and other computers on the same Wi-Fi.</div>
+    <div class="grid">
+      <section class="card">
+        <video id="preview" class="preview" autoplay muted playsinline></video>
+        <div class="row">
+          <button id="toggle">Start sharing</button>
+          <label class="muted">Quality
+            <select id="quality">
+              <option value="2500000">Smooth (weak Wi-Fi)</option>
+              <option value="6000000" selected>Balanced</option>
+              <option value="15000000">Sharp (strong Wi-Fi)</option>
+            </select>
+          </label>
+          <span class="grow"></span>
+          <span><span id="dot" class="dot"></span><span id="status">Not sharing</span></span>
+        </div>
+        <div class="muted" style="margin-top:10px">Tip: to send sound too, pick “Entire screen” (or a browser tab) and tick “Also share audio” in the picker.</div>
+        <div id="err" class="err" hidden></div>
+      </section>
+      <aside class="card">
+        <strong>Join from another device</strong>
+        <div class="muted">Scan with the camera, or type the address into Safari / Chrome.</div>
+        <img id="qr" class="qr" alt="QR code to join" style="margin-top:12px">
+        <div id="url" class="url"></div>
+        <select id="urls" hidden></select>
+        <div class="muted" style="margin-top:12px">PIN</div>
+        <div id="pin" class="pin">----</div>
+        <div class="muted" style="margin-top:12px"><span id="count">0</span> viewer(s) connected</div>
+      </aside>
+    </div>
+  </main>
+  <script src="/host.js"></script>
+</body>
+</html>
