@@ -5,7 +5,15 @@ other device on the same Wi-Fi. Nothing is installed on the viewing device –
 it just opens a web page. Video goes directly between the devices (WebRTC) and
 never leaves your network.
 
-## Use it
+## Install on your own Windows PC (admin rights)
+
+Download `LanScreenShare-Setup.exe` from the repository's **Actions** tab
+(latest "Build LAN Screen Share installer" run, under Artifacts) and run it. It
+needs nothing else installed, adds a **LAN Screen Share** shortcut to the Start
+menu, and allows the app through Windows Firewall. Start it from the shortcut and
+continue from step 2 below.
+
+## Use it without installing
 
 **On the Windows PC (once):** install [Node.js LTS](https://nodejs.org). Without
 admin rights, download the Windows "standalone binary (.zip)" instead and unpack

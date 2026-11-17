@@ -1,0 +1,59 @@
+name: Build LAN Screen Share installer
+
+on:
+  push:
+    paths:
+      - 'screen-share/**'
+      - '.github/workflows/screen-share-installer.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+
+    - name: Stage app with its own Node.js runtime
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory stage | Out-Null
+        Copy-Item (Get-Command node.exe).Source stage\LanScreenShare.exe
+        Copy-Item screen-share\server.js, screen-share\package.json, screen-share\README.md stage
+        Copy-Item screen-share\public stage\public -Recurse
+        Copy-Item screen-share\node_modules stage\node_modules -Recurse
+
+    - name: Smoke test staged app
+      shell: pwsh
+      run: |
+        $p = Start-Process -FilePath "$pwd\stage\LanScreenShare.exe" -ArgumentList 'server.js' -WorkingDirectory "$pwd\stage" -PassThru -NoNewWindow
+        Start-Sleep -Seconds 3
+        try {
+          $info = Invoke-RestMethod http://localhost:8080/info
+          if ($info.pin -notmatch '^\d{4}$') { throw "unexpected /info response" }
+          $page = Invoke-WebRequest http://localhost:8080/ -UseBasicParsing
+          if ($page.Content -notmatch 'Start sharing') { throw "host page missing" }
+        } finally {
+          Stop-Process -Id $p.Id -Force
+        }
+
+    - name: Install Inno Setup
+      run: choco install innosetup -y --no-progress
+
+    - name: Build installer
+      shell: pwsh
+      run: |
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DStageDir=$pwd\stage" screen-share\installer.iss
+
+    - name: Upload installer
+      uses: actions/upload-artifact@v4
+      with:
+        name: LanScreenShare-Setup
+        path: screen-share/Output/LanScreenShare-Setup.exe
+        retention-days: 90
