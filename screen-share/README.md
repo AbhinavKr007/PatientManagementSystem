@@ -7,10 +7,13 @@ never leaves your network.
 
 ## Use it
 
-**On the Windows PC (once):** install [Node.js LTS](https://nodejs.org).
+**On the Windows PC (once):** install [Node.js LTS](https://nodejs.org). Without
+admin rights, download the Windows "standalone binary (.zip)" instead and unpack
+it so that `node.exe` is in `C:\Users\<you>\node`; `start.bat` finds it there.
+The app's dependencies are included in this folder, so nothing else is downloaded.
 
 1. Double-click `start.bat`. A browser tab opens at `http://localhost:8080`.
-   (Or run `npm install` and `npm start`, then open that address in Chrome/Edge.)
+   (Or run `npm start`, then open that address in Chrome/Edge.)
 2. Click **Start sharing** and pick the screen, window or tab.
 3. **On the iPad / Android device:** scan the QR code shown on the PC with the
    camera, or type the address shown (e.g. `http://192.168.1.20:8080`) into
