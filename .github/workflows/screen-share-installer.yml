@@ -28,6 +28,56 @@ jobs:
         Copy-Item screen-share\server.js, screen-share\package.json, screen-share\README.md stage
         Copy-Item screen-share\public stage\public -Recurse
         Copy-Item screen-share\node_modules stage\node_modules -Recurse
+        Copy-Item screen-share\driver stage\driver -Recurse
+
+    - name: Add virtual display driver (pinned, checksum-verified)
+      shell: pwsh
+      run: |
+        $files = @(
+          @{ Url = 'https://github.com/VirtualDrivers/Virtual-Display-Driver/releases/download/25.7.23/VirtualDisplayDriver-x86.Driver.Only.zip'
+             Hash = 'e24210692b442b39af763536330ce78b423f19342b7a7792c26de3944e418b3a'; Out = 'vdd.zip' },
+          @{ Url = 'https://github.com/nefarius/nefcon/releases/download/v1.14.0/nefcon_v1.14.0.zip'
+             Hash = 'a15557da24a9efca203158de3b43b0eaf982db231f0194031f1ed428bc13e669'; Out = 'nefcon.zip' }
+        )
+        foreach ($f in $files) {
+          Invoke-WebRequest -Uri $f.Url -OutFile $f.Out
+          $hash = (Get-FileHash $f.Out -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $f.Hash) { throw "Checksum mismatch for $($f.Out): $hash" }
+        }
+        Expand-Archive vdd.zip -DestinationPath vdd
+        Expand-Archive nefcon.zip -DestinationPath nefcon
+        Copy-Item vdd\VirtualDisplayDriver\MttVDD.inf, vdd\VirtualDisplayDriver\mttvdd.cat, vdd\VirtualDisplayDriver\MttVDD.dll stage\driver
+        Copy-Item nefcon\x64\nefconc.exe stage\driver
+        Get-ChildItem stage\driver
+
+    - name: Test virtual display install and removal
+      shell: powershell
+      run: |
+        Add-Type -AssemblyName System.Windows.Forms
+        function Screens { ([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { "$($_.DeviceName) $($_.Bounds.Width)x$($_.Bounds.Height)" }) -join ', ' }
+        function Node { Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object { $_.HardwareID -contains 'Root\MttVDD' } }
+        $showLog = { Get-Content "$env:ProgramData\LanScreenShare-display-install.log" -ErrorAction SilentlyContinue }
+        Write-Host "OS: $((Get-CimInstance Win32_OperatingSystem).Caption)"
+        Write-Host "Screens before: $(Screens)"
+        powershell -NoProfile -ExecutionPolicy Bypass -File stage\driver\install-display.ps1
+        if ($LASTEXITCODE -ne 0) { & $showLog; throw 'install script failed' }
+        Start-Sleep -Seconds 10
+        $node = Node
+        if (-not $node) { & $showLog; throw 'virtual display device was not created' }
+        $node | Format-List FriendlyName, Status, Problem, InstanceId
+        # Informational only: hosted runners are servers without a real GPU, so
+        # the screen may not light up here even though the driver is installed.
+        powershell -NoProfile -ExecutionPolicy Bypass -File stage\driver\display-mode.ps1 extend
+        Write-Host "display-mode extend -> exit $LASTEXITCODE"
+        Start-Sleep -Seconds 5
+        powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; 'Screens after: ' + (([System.Windows.Forms.Screen]::AllScreens | ForEach-Object { `$_.DeviceName + ' ' + `$_.Bounds.Width + 'x' + `$_.Bounds.Height }) -join ', ')"
+        Get-CimInstance Win32_VideoController | Format-Table Name, Status, CurrentHorizontalResolution, CurrentVerticalResolution
+        powershell -NoProfile -ExecutionPolicy Bypass -File stage\driver\install-display.ps1 -Uninstall
+        Start-Sleep -Seconds 5
+        if (Node) { & $showLog; throw 'virtual display device was not removed' }
+        if (Test-Path C:\VirtualDisplayDriver) { throw 'settings folder was not removed' }
+        & $showLog
+        exit 0
 
     - name: Smoke test staged app
       shell: pwsh

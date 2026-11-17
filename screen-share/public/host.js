@@ -20,6 +20,7 @@ function render() {
 // ---- join info -------------------------------------------------------------
 fetch('/info').then((r) => r.json()).then((info) => {
   $('pin').textContent = info.pin;
+  $('second').hidden = !info.secondScreen;
   const pick = (u) => {
     $('qr').src = '/qr.svg?u=' + encodeURIComponent(u);
     $('url').textContent = u.split('/?')[0];
@@ -136,6 +137,14 @@ function stop() {
   if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'stopped' }));
   render();
 }
+
+async function setDisplay(mode) {
+  $('extMsg').textContent = '…';
+  const ok = await fetch('/display?mode=' + mode, { method: 'POST' }).then((r) => r.ok, () => false);
+  $('extMsg').textContent = !ok ? 'Could not switch – press Win+P instead.' : mode === 'extend' ? 'Extra screen is on.' : 'Extra screen is off.';
+}
+$('extOn').onclick = () => setDisplay('extend');
+$('extOff').onclick = () => setDisplay('internal');
 
 $('toggle').onclick = () => (stream ? stop() : start());
 $('quality').onchange = () => peers.forEach(applyQuality);

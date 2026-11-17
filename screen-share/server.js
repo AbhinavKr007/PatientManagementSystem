@@ -9,7 +9,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 const { WebSocketServer } = require('ws');
 const QRCode = require('qrcode');
 
@@ -35,6 +35,11 @@ function lanAddresses() {
   const rank = (a) => (a.startsWith('192.168.') ? 0 : a.startsWith('10.') ? 1 : 2);
   return out.sort((a, b) => rank(a) - rank(b));
 }
+// The optional virtual second display is set up by the Windows installer.
+const DISPLAY_SCRIPT = path.join(__dirname, 'driver', 'display-mode.ps1');
+const hasSecondScreen = () =>
+  process.platform === 'win32' && fs.existsSync('C:\\VirtualDisplayDriver\\vdd_settings.xml') && fs.existsSync(DISPLAY_SCRIPT);
+
 const viewerUrls = () => lanAddresses().map((a) => `http://${a}:${PORT}/?pin=${PIN}`);
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8' };
@@ -64,7 +69,19 @@ const server = http.createServer(async (req, res) => {
     case '/info': // PIN and join links: only for the host PC itself.
       if (!local) return res.writeHead(403).end();
       res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-      return res.end(JSON.stringify({ pin: PIN, urls: viewerUrls() }));
+      return res.end(JSON.stringify({ pin: PIN, urls: viewerUrls(), secondScreen: hasSecondScreen() }));
+    case '/display': {
+      // Same as Win+P: "extend" turns the virtual second screen on, "internal" off.
+      const mode = url.searchParams.get('mode');
+      const origin = req.headers.origin;
+      const sameOrigin = !origin || origin === `http://${req.headers.host}`;
+      if (!local || !sameOrigin || req.method !== 'POST') return res.writeHead(403).end();
+      if (!hasSecondScreen() || !['extend', 'internal'].includes(mode)) return res.writeHead(400).end();
+      execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', DISPLAY_SCRIPT, mode], { windowsHide: true }, (err) => {
+        res.writeHead(err ? 500 : 204).end();
+      });
+      return;
+    }
     case '/qr.svg': {
       if (!local) return res.writeHead(403).end();
       const svg = await QRCode.toString(url.searchParams.get('u') || '', { type: 'svg', margin: 1 }).catch(() => null);
